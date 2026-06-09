@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SiberBoard — Visual Flow Builder</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+
+    /* dotted grid canvas */
+    #canvasArea {
+      background-color: #1a1a1a;
+      background-image: radial-gradient(circle, #333 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+
+    /* node ports */
+    .input-port, .output-port {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 14px;
+      height: 14px;
+      border-radius: 9999px;
+      background: #1a1a1a;
+      border: 2px solid #6b7280;
+      cursor: crosshair;
+      z-index: 5;
+      transition: background 0.1s, border-color 0.1s, transform 0.1s;
+    }
+    .input-port { left: -7px; }
+    .output-port { right: -7px; }
+    .input-port:hover, .output-port:hover {
+      background: #4a90d9;
+      border-color: #4a90d9;
+      transform: translateY(-50%) scale(1.25);
+    }
+
+    .icon-box {
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+
+    .line-clamp-2 {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+      overflow: hidden;
+      word-break: break-word;
+    }
+
+    /* hover toolbar above node */
+    .node-toolbar {
+      position: absolute;
+      bottom: 100%;        /* sit flush on top of the node (no hover gap) */
+      right: 0;
+      padding-bottom: 6px; /* transparent bridge so hover stays continuous */
+      display: flex;
+      gap: 4px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.12s;
+    }
+    .node:hover .node-toolbar { opacity: 1; pointer-events: auto; }
+    .node-toolbar button {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      background: #2b2b2b;
+      border: 1px solid #3a3a3a;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    .node-toolbar button:hover { background: #3a2323; border-color: #ef4444; }
+
+    .node-resize-handle {
+      position: absolute;
+      right: 6px;
+      bottom: 6px;
+      width: 12px;
+      height: 12px;
+      border-right: 2px solid #6b7280;
+      border-bottom: 2px solid #6b7280;
+      border-radius: 0 0 8px 0;
+      cursor: nwse-resize;
+      opacity: 0;
+      transition: opacity 0.12s, border-color 0.12s;
+      z-index: 6;
+    }
+    .node:hover .node-resize-handle {
+      opacity: 1;
+    }
+    .node-resize-handle:hover {
+      border-color: #4a90d9;
+    }
+
+    /* shaped (flowchart) nodes: SVG outline behind the content */
+    .node-shaped { background: transparent; }
+    .node-shape {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      z-index: 0;
+      pointer-events: none;            /* clicks fall through to the node for drag */
+      filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.35));
+    }
+    .node-shape-path {
+      fill: #2b2b2b;
+      stroke: #3a3a3a;
+      stroke-width: 1.5;
+      stroke-linejoin: round;
+      vector-effect: non-scaling-stroke;  /* even border regardless of node size */
+      transition: stroke 0.1s;
+    }
+    .node-shape-line {
+      fill: none;
+      stroke: #3a3a3a;
+      stroke-width: 1.5;
+      vector-effect: non-scaling-stroke;
+      transition: stroke 0.1s;
+    }
+    .node-shaped:hover .node-shape-path,
+    .node-shaped:hover .node-shape-line { stroke: #4a90d9; }
+    .node-body { position: relative; z-index: 1; }
+
+    /* keep text clear of pointy/narrow corners */
+    .node[data-shape="diamond"] .node-body,
+    .node[data-shape="circle"] .node-body { padding-left: 24px; padding-right: 24px; }
+    .node[data-shape="parallelogram"] .node-body { padding-left: 22px; }
+    .node[data-shape="hexagon"] .node-body { padding-left: 18px; padding-right: 18px; }
+    .node[data-shape="offpage"] .node-body { padding-bottom: 14px; }
+    .node[data-shape="delay"] .node-body { padding-right: 22px; }
+
+    /* mini shape preview inside the node picker */
+    .picker-shape {
+      width: 36px;
+      height: 36px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .picker-shape svg { width: 100%; height: 100%; overflow: visible; }
+
+    /* edges */
+    .edge-group { pointer-events: none; }
+    .edge-hit { pointer-events: stroke; cursor: pointer; }
+    .edge-line { pointer-events: none; transition: stroke 0.1s, stroke-width 0.1s; }
+    .edge-group:hover .edge-line { stroke: #ef4444 !important; stroke-width: 3; }
+    .edge-label { pointer-events: all; cursor: pointer; }
+    .edge-group:hover .edge-label rect { stroke: #ef4444; }
+
+    .edge-menu {
+      min-width: 120px;
+      background: #202020;
+      border: 1px solid #3a3a3a;
+      border-radius: 10px;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+      overflow: hidden;
+    }
+    .edge-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 9px 12px;
+      font-size: 12px;
+      color: #e5e7eb;
+      background: transparent;
+    }
+    .edge-menu button:hover {
+      background: #2d2d2d;
+    }
+
+    /* side panels (own CSS instead of relying on Tailwind JIT toggle) */
+    .side-panel { transform: translateX(100%); transition: transform 0.2s ease; }
+    .side-panel.open { transform: translateX(0); }
+
+    /* icon picker grid */
+    .icon-pick {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      border-radius: 6px;
+      background: #1a1a1a;
+      border: 1px solid #2d2d2d;
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .icon-pick:hover { background: #2d2d2d; border-color: #4a90d9; }
+  </style>
+</head>
+<body class="h-screen overflow-hidden flex flex-col bg-[#1a1a1a] text-gray-100">
+
+  <!-- top bar -->
+  <header class="h-12 flex items-center justify-between px-4 bg-[#202020] border-b border-[#2d2d2d] shrink-0 z-40">
+    <div class="flex items-center gap-3">
+      <div class="flex items-center gap-2">
+        <div class="w-6 h-6 rounded-md bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center text-[10px] font-bold tracking-tight">SB</div>
+        <span class="text-sm font-semibold tracking-tight">SiberBoard</span>
+      </div>
+      <span class="text-gray-600">/</span>
+      <input id="wfName" value="Untitled board"
+        class="bg-transparent text-sm font-medium focus:outline-none focus:bg-[#2d2d2d] rounded px-2 py-1 w-44" />
+      <span class="text-[11px] text-gray-500 border border-[#3a3a3a] rounded px-1.5 py-0.5">Draft</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <span id="saveStatus" class="text-[11px] text-gray-500 min-w-[5rem] text-right">Not saved</span>
+      <button id="clearBtn" class="text-xs px-3 py-1.5 rounded-md bg-[#2d2d2d] hover:bg-[#3a2323] hover:border-[#ef4444] border border-[#3a3a3a] font-medium" title="Clear canvas">Clear</button>
+      <div class="relative">
+        <button id="exportImgBtn" class="text-xs px-3 py-1.5 rounded-md bg-[#2d2d2d] hover:bg-[#3a3a3a] border border-[#3a3a3a] font-medium" title="Export workflow as PNG">Export PNG ▾</button>
+        <div id="exportMenu" class="edge-menu absolute right-0 top-full mt-1 z-50 hidden">
+          <button type="button" data-transparent="0">With background</button>
+          <button type="button" data-transparent="1">Transparent</button>
+        </div>
+      </div>
+      <button id="loadUiBtn" class="text-xs px-3 py-1.5 rounded-md bg-[#2d2d2d] hover:bg-[#3a3a3a] border border-[#3a3a3a] font-medium">Load</button>
+      <button id="saveUiBtn" class="text-xs px-3 py-1.5 rounded-md bg-[#ea4b71] hover:bg-[#d63e63] font-medium">Save</button>
+    </div>
+  </header>
+
+  <!-- canvas -->
+  <main id="canvasArea" class="flex-1 relative overflow-hidden cursor-grab">
+    <!-- transformed world layer: nodes + edges live here -->
+    <div id="viewport" class="absolute top-0 left-0 w-full h-full origin-top-left">
+      <svg id="edgeLayer" class="absolute top-0 left-0 overflow-visible pointer-events-none z-10" width="1" height="1"></svg>
+    </div>
+
+    <!-- add-node trigger -->
+    <button id="addNodeBtn"
+      class="ui-chrome absolute top-4 right-4 z-30 w-10 h-10 rounded-lg bg-[#ea4b71] hover:bg-[#d63e63] text-xl font-bold shadow-lg flex items-center justify-center">+</button>
+
+    <!-- node picker panel -->
+    <aside id="nodePanel"
+      class="side-panel ui-chrome absolute top-0 right-0 h-full w-72 bg-[#202020] border-l border-[#2d2d2d] z-40 flex flex-col">
+      <div class="flex items-center justify-between px-4 h-12 border-b border-[#2d2d2d] shrink-0">
+        <h2 class="text-sm font-semibold">Add node</h2>
+        <button id="closePanelBtn" class="w-7 h-7 rounded hover:bg-[#2d2d2d] text-gray-400">✕</button>
+      </div>
+      <div class="p-3 border-b border-[#2d2d2d] shrink-0">
+        <input id="nodeSearch" type="text" placeholder="Search nodes…"
+          class="w-full bg-[#1a1a1a] border border-[#3a3a3a] rounded-md px-3 py-2 text-sm placeholder-gray-500 focus:outline-none focus:border-[#4a90d9]" />
+      </div>
+      <div id="pickerList" class="p-2 flex flex-col gap-0.5 overflow-y-auto flex-1"></div>
+    </aside>
+
+    <!-- node editor panel -->
+    <aside id="nodeEditor"
+      class="side-panel ui-chrome absolute top-0 right-0 h-full w-72 bg-[#202020] border-l border-[#2d2d2d] z-40 flex flex-col">
+      <div class="flex items-center justify-between px-4 h-12 border-b border-[#2d2d2d] shrink-0">
+        <h2 class="text-sm font-semibold">Edit node</h2>
+        <button id="closeEditorBtn" class="w-7 h-7 rounded hover:bg-[#2d2d2d] text-gray-400">✕</button>
+      </div>
+      <div class="p-4 flex flex-col gap-5 overflow-y-auto">
+        <div>
+          <label class="text-[11px] uppercase tracking-wider text-gray-500">Label</label>
+          <input id="editLabel" type="text"
+            class="mt-1.5 w-full bg-[#1a1a1a] border border-[#3a3a3a] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#4a90d9]" />
+        </div>
+        <div>
+          <label class="text-[11px] uppercase tracking-wider text-gray-500">Description</label>
+          <input id="editSub" type="text"
+            class="mt-1.5 w-full bg-[#1a1a1a] border border-[#3a3a3a] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#4a90d9]" />
+        </div>
+        <div id="iconEditRow">
+          <label class="text-[11px] uppercase tracking-wider text-gray-500">Icon</label>
+          <div class="mt-1.5 flex items-center gap-2">
+            <div id="editIconPreview" class="icon-box" style="background:#64748b22;"></div>
+            <input id="editIconInput" type="text" maxlength="6" placeholder="Type / paste emoji"
+              class="flex-1 bg-[#1a1a1a] border border-[#3a3a3a] rounded-md px-3 py-2 text-sm focus:outline-none focus:border-[#4a90d9]" />
+          </div>
+          <div id="iconGrid" class="mt-3 grid grid-cols-8 gap-1"></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- zoom controls -->
+    <div class="ui-chrome absolute bottom-4 left-4 z-30 flex items-center gap-2">
+      <div class="flex flex-col bg-[#202020] border border-[#2d2d2d] rounded-lg overflow-hidden">
+        <button id="zoomIn" class="w-9 h-9 hover:bg-[#2d2d2d] text-lg leading-none">+</button>
+        <div class="h-px bg-[#2d2d2d]"></div>
+        <button id="zoomOut" class="w-9 h-9 hover:bg-[#2d2d2d] text-lg leading-none">−</button>
+        <div class="h-px bg-[#2d2d2d]"></div>
+        <button id="zoomFit" class="w-9 h-9 hover:bg-[#2d2d2d] text-sm" title="Reset view">⊡</button>
+      </div>
+      <span id="zoomLabel" class="text-xs text-gray-400 bg-[#202020] border border-[#2d2d2d] rounded px-2 py-1">100%</span>
+    </div>
+
+    <div id="edgeMenu" class="edge-menu ui-chrome absolute z-50 hidden">
+      <button id="editEdgeBtn" type="button">Edit label</button>
+      <button id="deleteEdgeBtn" type="button">Hapus</button>
+    </div>
+
+    <input id="loadUiInput" type="file" accept=".json,application/json" class="hidden" />
+  </main>
+
+  <script type="module" src="src/main.js?v=12"></script>
+</body>
+</html>
