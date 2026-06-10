@@ -1,6 +1,6 @@
 import { moveNode, addEdge, getNode, resizeNode } from './state.js';
 import { MIN_NODE_WIDTH, MIN_NODE_HEIGHT } from './constants.js';
-import { renderEdges, buildEdgePath, outputXY } from './bezier.js';
+import { renderEdges, buildEdgePath, portXY } from './bezier.js';
 import { view, applyTransform, screenToWorld } from './viewport.js';
 
 let mode = null;            // 'node' | 'resize' | 'connect' | 'pan'
@@ -53,16 +53,17 @@ function onMouseDown(e) {
     return;
   }
 
-  const port = e.target.closest('.output-port, .input-port');
+  const port = e.target.closest('.node-port');
   if (port) {
     const id = Number(port.closest('[data-node-id]').dataset.nodeId);
-    if (port.classList.contains('output-port')) {
-      selectedFrom = id;
+    const side = port.dataset.side || 'right';
+    if (selectedFrom === null) {
+      selectedFrom = { id, side };
       mode = 'connect';
       return;
     }
-    if (port.classList.contains('input-port') && selectedFrom !== null) {
-      addEdge(selectedFrom, id);
+    if (selectedFrom !== null) {
+      addEdge(selectedFrom.id, id, selectedFrom.side, side);
       renderEdges();
       selectedFrom = null;
       mode = null;
@@ -96,11 +97,11 @@ function onMouseDown(e) {
 
 function onMouseMove(e) {
   if (mode === 'connect') {
-    const fromNode = getNode(selectedFrom);
+    const fromNode = getNode(selectedFrom.id);
     if (!fromNode) return;
-    const start = outputXY(fromNode);
+    const start = portXY(fromNode, selectedFrom.side);
     const end = screenToWorld(e.clientX, e.clientY);
-    const d = buildEdgePath(start.x, start.y, end.x, end.y);
+    const d = buildEdgePath(start.x, start.y, end.x, end.y, selectedFrom.side, selectedFrom.side);
 
     const svg = document.getElementById('edgeLayer');
     let temp = svg.querySelector('.temp-edge');
@@ -151,10 +152,11 @@ function onMouseMove(e) {
 
 function onMouseUp(e) {
   if (mode === 'connect') {
-    const port = e.target.closest('.input-port');
+    const port = e.target.closest('.node-port');
     if (port && selectedFrom !== null) {
       const toId = Number(port.closest('[data-node-id]').dataset.nodeId);
-      addEdge(selectedFrom, toId);
+      const toSide = port.dataset.side || 'left';
+      addEdge(selectedFrom.id, toId, selectedFrom.side, toSide);
     }
     const temp = document.querySelector('.temp-edge');
     if (temp) temp.remove();

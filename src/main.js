@@ -1,5 +1,5 @@
 import { addNode, addEdge, removeNode, removeEdge, updateNode, updateEdge, getNode, getEdge, getState, replaceState } from './state.js';
-import { renderEdges, outputXY, inputXY, buildEdgePath, edgeLabelPoint } from './bezier.js';
+import { renderEdges, outputXY, inputXY, buildEdgePath, edgeLabelPoint, portXY } from './bezier.js';
 import { initDrag } from './drag.js';
 import { initViewport, applyTransform, screenToWorld, zoomBy, resetView, view } from './viewport.js';
 import { NODE_TYPES, NODE_CATEGORIES, CATEGORY_COLOR, ICON_CHOICES, NODE_WIDTH, NODE_HEIGHT } from './constants.js';
@@ -8,6 +8,14 @@ const viewport = document.getElementById('viewport');
 const canvasArea = document.getElementById('canvasArea');
 let activeEdgeMenu = null;
 let currentFileName = null;
+let aiBusy = false;
+let aiLoadingEl = null;
+let aiAuthState = { authenticated: false, username: null, configured: true };
+
+const AI_DEFAULT_MODELS = {
+  deepseek: 'deepseek-chat',
+  grok: 'grok-build-0.1',
+};
 
 // Flowchart shape outlines drawn in a 0..100 box and stretched to the node size
 // (preserveAspectRatio="none"); strokes stay even via vector-effect in CSS.
@@ -30,11 +38,18 @@ const SHAPE_SVG = {
 // fallback glyph for the plain-rectangle flowchart node (Process) in the picker
 const PICKER_RECT = '<rect x="5" y="22" width="90" height="56" rx="10" class="node-shape-path"/>';
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function createNodeElement(node) {
   const info = NODE_TYPES[node.type] || NODE_TYPES.set;
   const color = CATEGORY_COLOR[info.cat] || '#6b7280';
-  const hasIn = info.ports.includes('in');
-  const hasOut = info.ports.includes('out');
   const shape = info.shape && SHAPE_SVG[info.shape] ? info.shape : null;
   const noIcon = info.cat === 'flowchart';
 
@@ -61,24 +76,27 @@ function createNodeElement(node) {
   // icon and center the label; everything else keeps the icon + left-aligned text.
   let bodyClass, iconHtml, textClass, subClass;
   if (noIcon) {
-    bodyClass = `${shape ? 'node-body ' : ''}flex items-center justify-center text-center w-full h-full px-4 pointer-events-none`;
+    bodyClass = `${shape ? 'node-body ' : ''}flex items-center justify-center text-center w-full h-full px-4 py-3 pointer-events-none`;
     iconHtml = '';
     textClass = 'min-w-0';
     subClass = 'node-sub mt-0.5 text-[11px] leading-4 text-gray-400 line-clamp-2';
   } else if (shape) {
-    bodyClass = 'node-body flex items-center gap-2.5 w-full h-full px-4 pointer-events-none';
+    bodyClass = 'node-body flex items-center gap-2.5 w-full h-full px-4 py-3 pointer-events-none';
     iconHtml = `<div class="icon-box node-icon" style="background:${color}22;">${icon}</div>`;
     textClass = 'min-w-0 flex-1';
     subClass = 'node-sub mt-0.5 text-[11px] leading-4 text-gray-400 line-clamp-2';
   } else {
-    bodyClass = 'flex items-start gap-3 w-full h-full px-3 py-3 pr-5 pointer-events-none';
+    bodyClass = 'node-body flex items-start gap-3 w-full h-full px-3 py-3 pr-5 pointer-events-none';
     iconHtml = `<div class="icon-box node-icon mt-0.5" style="background:${color}22;">${icon}</div>`;
     textClass = 'min-w-0 flex-1 self-center';
     subClass = 'node-sub mt-1 text-[11px] leading-4 text-gray-400 line-clamp-2';
   }
 
   div.innerHTML = `
-    ${hasIn ? '<span class="input-port"></span>' : ''}
+    <span class="node-port" data-side="left"></span>
+    <span class="node-port" data-side="right"></span>
+    <span class="node-port" data-side="top"></span>
+    <span class="node-port" data-side="bottom"></span>
     ${shapeLayer}
     <div class="${bodyClass}">
       ${iconHtml}
@@ -87,7 +105,6 @@ function createNodeElement(node) {
         <div class="${subClass}">${sub}</div>
       </div>
     </div>
-    ${hasOut ? '<span class="output-port"></span>' : ''}
     <div class="node-toolbar">
       <button class="edit-node" title="Edit node">✎</button>
       <button class="del-node" title="Delete node">🗑</button>
@@ -414,6 +431,400 @@ function setSaveMessage(message) {
   el.textContent = message;
 }
 
+function setAiStatus(message) {
+  const el = document.getElementById('aiStatus');
+  if (el) el.textContent = message;
+}
+
+function setAiLoginStatus(message) {
+  const el = document.getElementById('aiLoginStatus');
+  if (el) el.textContent = message;
+}
+
+function scrollAiHistoryToBottom() {
+  const list = document.getElementById('aiMessages');
+  if (!list) return;
+  list.scrollTop = list.scrollHeight;
+}
+
+function appendAiMessage(role, text) {
+  const list = document.getElementById('aiMessages');
+  const row = document.createElement('div');
+  row.className = `assistant-msg-row ${role}`;
+
+  const showAvatar = role !== 'user';
+  if (showAvatar) {
+    const avatar = document.createElement('div');
+    avatar.className = `assistant-avatar ${role}`;
+    avatar.textContent = role === 'assistant' ? 'AI' : 'SYS';
+    row.appendChild(avatar);
+  }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'assistant-msg-wrap';
+
+  const meta = document.createElement('div');
+  meta.className = 'assistant-msg-meta';
+  meta.textContent = role === 'user' ? 'Anda' : 'Assistant';
+
+  const item = document.createElement('div');
+  item.className = `assistant-msg ${role}`;
+  item.innerHTML = escapeHtml(text);
+
+  wrap.append(meta, item);
+  row.appendChild(wrap);
+  list.appendChild(row);
+  scrollAiHistoryToBottom();
+}
+
+function showAiLoading() {
+  hideAiLoading();
+  const list = document.getElementById('aiMessages');
+  const row = document.createElement('div');
+  row.className = 'assistant-msg-row assistant';
+  row.dataset.loading = 'true';
+
+  const avatar = document.createElement('div');
+  avatar.className = 'assistant-avatar assistant';
+  avatar.textContent = 'AI';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'assistant-msg-wrap';
+
+  const meta = document.createElement('div');
+  meta.className = 'assistant-msg-meta';
+  meta.textContent = 'Assistant';
+
+  const item = document.createElement('div');
+  item.className = 'assistant-msg assistant';
+  item.innerHTML = '<div class="assistant-loading" aria-label="Loading"><span></span><span></span><span></span></div>';
+
+  wrap.append(meta, item);
+  row.append(avatar, wrap);
+  list.appendChild(row);
+  aiLoadingEl = row;
+  scrollAiHistoryToBottom();
+}
+
+function hideAiLoading() {
+  if (aiLoadingEl) {
+    aiLoadingEl.remove();
+    aiLoadingEl = null;
+  }
+}
+
+function setAiBusy(busy) {
+  aiBusy = busy;
+  const sendBtn = document.getElementById('sendAiPromptBtn');
+  const prompt = document.getElementById('aiPrompt');
+  if (sendBtn) {
+    sendBtn.disabled = busy;
+    sendBtn.textContent = busy ? 'Memproses...' : 'Kirim';
+    sendBtn.classList.toggle('opacity-60', busy);
+  }
+  if (prompt) prompt.disabled = busy;
+  if (busy) showAiLoading();
+  else hideAiLoading();
+}
+
+function normalizeNodeLabel(node) {
+  const info = NODE_TYPES[node.type] || NODE_TYPES.set;
+  return String(node.label ?? info.label ?? '').trim().toLowerCase();
+}
+
+function findNodeIdForAiTarget(target) {
+  if (Number.isFinite(target?.nodeId) && getNode(target.nodeId)) return target.nodeId;
+  if (typeof target?.matchLabel === 'string' && target.matchLabel.trim()) {
+    const wanted = target.matchLabel.trim().toLowerCase();
+    const found = getState().nodes.find(node => normalizeNodeLabel(node) === wanted);
+    if (found) return found.id;
+  }
+  return null;
+}
+
+function findEdgeTargetForAi(op) {
+  let fromId = Number.isFinite(op?.fromNodeId) && getNode(op.fromNodeId) ? op.fromNodeId : null;
+  let toId = Number.isFinite(op?.toNodeId) && getNode(op.toNodeId) ? op.toNodeId : null;
+
+  if (!fromId && typeof op?.fromMatchLabel === 'string' && op.fromMatchLabel.trim()) {
+    fromId = findNodeIdForAiTarget({ matchLabel: op.fromMatchLabel });
+  }
+  if (!toId && typeof op?.toMatchLabel === 'string' && op.toMatchLabel.trim()) {
+    toId = findNodeIdForAiTarget({ matchLabel: op.toMatchLabel });
+  }
+
+  if (!fromId || !toId) return null;
+  return { fromId, toId };
+}
+
+function normalizePortSide(side, fallback) {
+  return ['left', 'right', 'top', 'bottom'].includes(side) ? side : fallback;
+}
+
+function sortNodesForLayout(ids) {
+  return [...ids].sort((a, b) => {
+    const nodeA = getNode(a);
+    const nodeB = getNode(b);
+    if (!nodeA || !nodeB) return 0;
+    return (nodeA.y - nodeB.y) || (nodeA.x - nodeB.x) || (a - b);
+  });
+}
+
+function autoLayoutGraph() {
+  const { nodes, edges } = getState();
+  if (nodes.length < 2) return false;
+
+  const nodeIds = nodes.map(node => node.id);
+  const incoming = new Map(nodeIds.map(id => [id, []]));
+  const outgoing = new Map(nodeIds.map(id => [id, []]));
+
+  for (const edge of edges) {
+    if (!incoming.has(edge.to) || !outgoing.has(edge.from)) continue;
+    incoming.get(edge.to).push(edge);
+    outgoing.get(edge.from).push(edge);
+  }
+
+  const indegree = new Map(nodeIds.map(id => [id, incoming.get(id).length]));
+  const queue = sortNodesForLayout(nodeIds.filter(id => indegree.get(id) === 0));
+  const topo = [];
+
+  while (queue.length) {
+    const id = queue.shift();
+    topo.push(id);
+    for (const edge of outgoing.get(id)) {
+      const next = edge.to;
+      indegree.set(next, indegree.get(next) - 1);
+      if (indegree.get(next) === 0) queue.push(next);
+    }
+    queue.sort((a, b) => {
+      const nodeA = getNode(a);
+      const nodeB = getNode(b);
+      return (nodeA?.y ?? 0) - (nodeB?.y ?? 0) || (nodeA?.x ?? 0) - (nodeB?.x ?? 0);
+    });
+  }
+
+  for (const id of nodeIds) {
+    if (!topo.includes(id)) topo.push(id);
+  }
+
+  const layer = new Map(nodeIds.map(id => [id, 0]));
+  for (const id of topo) {
+    for (const edge of outgoing.get(id)) {
+      layer.set(edge.to, Math.max(layer.get(edge.to), layer.get(id) + 1));
+    }
+  }
+
+  const layers = [];
+  for (const id of topo) {
+    const idx = layer.get(id);
+    if (!layers[idx]) layers[idx] = [];
+    layers[idx].push(id);
+  }
+
+  const layerOrder = new Map();
+  const yRank = new Map();
+
+  for (let index = 0; index < layers.length; index += 1) {
+    const ids = layers[index] || [];
+    ids.sort((a, b) => {
+      const parentsA = incoming.get(a).map(edge => edge.from);
+      const parentsB = incoming.get(b).map(edge => edge.from);
+
+      const scoreOf = (parents) => {
+        if (!parents.length) {
+          const node = getNode(parents === parentsA ? a : b);
+          return node ? node.y : 0;
+        }
+        return parents.reduce((sum, parentId) => sum + (layerOrder.get(parentId) ?? 0), 0) / parents.length;
+      };
+
+      const scoreA = scoreOf(parentsA);
+      const scoreB = scoreOf(parentsB);
+      if (scoreA !== scoreB) return scoreA - scoreB;
+
+      // Slightly prefer "Tidak/No" above "Ya/Yes" branches when labels exist.
+      const edgeToA = incoming.get(a)[0];
+      const edgeToB = incoming.get(b)[0];
+      const labelA = String(edgeToA?.label || '').trim().toLowerCase();
+      const labelB = String(edgeToB?.label || '').trim().toLowerCase();
+      const branchWeight = (label) => {
+        if (label === 'tidak' || label === 'no') return -1;
+        if (label === 'ya' || label === 'yes') return 1;
+        return 0;
+      };
+      const branchA = branchWeight(labelA);
+      const branchB = branchWeight(labelB);
+      if (branchA !== branchB) return branchA - branchB;
+
+      const nodeA = getNode(a);
+      const nodeB = getNode(b);
+      return (nodeA?.y ?? 0) - (nodeB?.y ?? 0) || (nodeA?.x ?? 0) - (nodeB?.x ?? 0) || (a - b);
+    });
+
+    ids.forEach((id, order) => {
+      layerOrder.set(id, order);
+      yRank.set(id, order);
+    });
+  }
+
+  const maxWidth = Math.max(...nodes.map(node => node.width));
+  const columnGap = maxWidth + 170;
+  const rowGap = 150;
+  const startX = 120;
+  const startY = 100;
+  const nextPositions = new Map();
+
+  for (const ids of layers) {
+    if (!ids?.length) continue;
+    const totalHeight = ids.reduce((sum, id, idx) => {
+      const node = getNode(id);
+      return sum + node.height + (idx > 0 ? rowGap : 0);
+    }, 0);
+    let cursorY = startY - totalHeight / 2 + 280;
+
+    for (const id of ids) {
+      const node = getNode(id);
+      const x = startX + layer.get(id) * columnGap;
+      nextPositions.set(id, { x, y: cursorY });
+      cursorY += node.height + rowGap;
+    }
+  }
+
+  for (const node of nodes) {
+    const next = nextPositions.get(node.id);
+    if (!next) continue;
+    updateNode(node.id, { x: next.x, y: next.y });
+    const el = nodeEl(node.id);
+    if (el) {
+      el.style.left = next.x + 'px';
+      el.style.top = next.y + 'px';
+    }
+  }
+
+  renderEdges();
+  return true;
+}
+
+function applyAiOperations(operations) {
+  const refMap = new Map();
+  let createdNodes = 0;
+  let createdEdges = 0;
+  let updatedNodes = 0;
+  let deletedNodes = 0;
+  let updatedEdges = 0;
+  let deletedEdges = 0;
+  let autoLayoutRequested = false;
+
+  for (const op of operations) {
+    if (op.type !== 'create_node' || !NODE_TYPES[op.nodeType]) continue;
+    const node = spawnNode(op.nodeType, op.x, op.y);
+    const patch = {};
+    if (typeof op.label === 'string') patch.label = op.label;
+    if (typeof op.sub === 'string') patch.sub = op.sub;
+    if (typeof op.icon === 'string') patch.icon = op.icon;
+    if (Number.isFinite(op.width)) patch.width = op.width;
+    if (Number.isFinite(op.height)) patch.height = op.height;
+    updateNode(node.id, patch);
+    refreshNode(node.id);
+    refMap.set(op.ref, node.id);
+    createdNodes += 1;
+  }
+
+  for (const op of operations) {
+    if (op.type !== 'create_edge') continue;
+    let fromId = typeof op.fromRef === 'string' ? refMap.get(op.fromRef) : null;
+    let toId = typeof op.toRef === 'string' ? refMap.get(op.toRef) : null;
+
+    if (!fromId || !toId) {
+      const existingTarget = findEdgeTargetForAi(op);
+      if (existingTarget) {
+        fromId = fromId || existingTarget.fromId;
+        toId = toId || existingTarget.toId;
+      }
+    }
+
+    if (!fromId || !toId) continue;
+    const edge = addEdge(
+      fromId,
+      toId,
+      normalizePortSide(op.fromSide, 'right'),
+      normalizePortSide(op.toSide, 'left')
+    );
+    if (!edge) continue;
+    if (typeof op.label === 'string' && op.label.trim()) {
+      updateEdge(fromId, toId, { label: op.label.trim() });
+    }
+    createdEdges += 1;
+  }
+
+  for (const op of operations) {
+    if (op.type === 'update_node') {
+      const nodeId = findNodeIdForAiTarget(op);
+      if (!nodeId) continue;
+      const patch = {};
+      if (typeof op.label === 'string') patch.label = op.label;
+      if (typeof op.sub === 'string') patch.sub = op.sub;
+      if (typeof op.icon === 'string') patch.icon = op.icon;
+      if (Number.isFinite(op.x)) patch.x = op.x;
+      if (Number.isFinite(op.y)) patch.y = op.y;
+      if (Number.isFinite(op.width)) patch.width = op.width;
+      if (Number.isFinite(op.height)) patch.height = op.height;
+      updateNode(nodeId, patch);
+      const el = nodeEl(nodeId);
+      const node = getNode(nodeId);
+      if (el && node) {
+        el.style.left = node.x + 'px';
+        el.style.top = node.y + 'px';
+      }
+      refreshNode(nodeId);
+      updatedNodes += 1;
+      continue;
+    }
+
+    if (op.type === 'delete_node') {
+      const nodeId = findNodeIdForAiTarget(op);
+      if (!nodeId) continue;
+      removeNode(nodeId);
+      nodeEl(nodeId)?.remove();
+      if (editingId === nodeId) closeEditor();
+      deletedNodes += 1;
+      continue;
+    }
+
+    if (op.type === 'update_edge') {
+      const target = findEdgeTargetForAi(op);
+      if (!target) continue;
+      const edge = getEdge(target.fromId, target.toId);
+      if (!edge) continue;
+      updateEdge(target.fromId, target.toId, {
+        fromSide: normalizePortSide(op.fromSide, edge.fromSide ?? 'right'),
+        toSide: normalizePortSide(op.toSide, edge.toSide ?? 'left'),
+        label: typeof op.label === 'string' ? op.label.trim() : edge.label,
+      });
+      updatedEdges += 1;
+      continue;
+    }
+
+    if (op.type === 'delete_edge') {
+      const target = findEdgeTargetForAi(op);
+      if (!target) continue;
+      if (!getEdge(target.fromId, target.toId)) continue;
+      removeEdge(target.fromId, target.toId);
+      deletedEdges += 1;
+      continue;
+    }
+
+    if (op.type === 'auto_layout') {
+      autoLayoutRequested = true;
+    }
+  }
+
+  const hasStructuralChanges = createdNodes || createdEdges || deletedNodes || deletedEdges;
+  const layoutApplied = (autoLayoutRequested || hasStructuralChanges) ? autoLayoutGraph() : false;
+  renderEdges();
+  return { createdNodes, createdEdges, updatedNodes, deletedNodes, updatedEdges, deletedEdges, layoutApplied };
+}
+
 function applyWorkflow(payload, sourceName = null) {
   replaceState(payload.state || {});
   renderAllNodes();
@@ -611,12 +1022,14 @@ function edgesSvg() {
     const fromNode = getNode(edge.from);
     const toNode = getNode(edge.to);
     if (!fromNode || !toNode) continue;
-    const a = outputXY(fromNode);
-    const b = inputXY(toNode);
-    out += `<path d="${buildEdgePath(a.x, a.y, b.x, b.y)}" fill="none" stroke="#7a7a7a" stroke-width="2"/>`;
+    const fromSide = edge.fromSide ?? 'right';
+    const toSide = edge.toSide ?? 'left';
+    const a = portXY(fromNode, fromSide);
+    const b = portXY(toNode, toSide);
+    out += `<path d="${buildEdgePath(a.x, a.y, b.x, b.y, fromSide, toSide)}" fill="none" stroke="#7a7a7a" stroke-width="2"/>`;
     const lbl = (edge.label || '').trim();
     if (lbl) {
-      const p = edgeLabelPoint(a.x, a.y, b.x, b.y);
+      const p = edgeLabelPoint(a.x, a.y, b.x, b.y, fromSide, toSide);
       const disp = lbl.length > 22 ? lbl.slice(0, 21) + '…' : lbl;
       const lw = Math.min(160, Math.max(44, disp.length * 7 + 18));
       out += `<g transform="translate(${p.x}, ${p.y})">`
@@ -723,11 +1136,23 @@ async function exportImage(transparent = false) {
   }
 }
 
+async function fetchAiAuthStatus() {
+  const response = await fetch('/api/auth/status');
+  const payload = await response.json();
+  aiAuthState = {
+    authenticated: Boolean(payload.authenticated),
+    username: payload.username ?? null,
+    configured: payload.configured !== false,
+  };
+  return aiAuthState;
+}
+
 function seedSampleWorkflow() {
-  // contoh flowchart sederhana (Bahasa Indonesia): cek nilai kelulusan
-  const place = (type, x, y, label) => {
+  // contoh gabungan (Bahasa Indonesia): otomasi balas chat customer service.
+  // Mencampur node biasa (trigger, AI, integrasi) dengan node flowchart.
+  const place = (type, x, y, label, sub) => {
     const node = spawnNode(type, x, y);
-    updateNode(node.id, { label, sub: '' });
+    updateNode(node.id, { label, sub });
     refreshNode(node.id);
     return node;
   };
@@ -736,19 +1161,36 @@ function seedSampleWorkflow() {
     if (label) updateEdge(a.id, b.id, { label });
   };
 
-  const mulai   = place('fcStart',        140, 300, 'Mulai');
-  const input   = place('fcInputOutput',  400, 300, 'Input Nilai');
-  const cek     = place('fcDecision',     660, 300, 'Nilai ≥ 70?');
-  const lulus   = place('fcProcess',      920, 170, 'Lulus');
-  const gagal   = place('fcProcess',      920, 430, 'Tidak Lulus');
-  const selesai = place('fcEnd',         1180, 300, 'Selesai');
+  // spine
+  const chat    = place('chat',        100, 300, 'Pesan Masuk',     'Pelanggan kirim chat');
+  const ai      = place('agent',       360, 300, 'Analisa Maksud',  'AI deteksi intent');
+  const cek     = place('fcDecision',  620, 300, 'Butuh CS?',       'Kondisi rumit?');
 
-  link(mulai, input);
-  link(input, cek);
-  link(cek, lulus, 'Ya');
-  link(cek, gagal, 'Tidak');
-  link(lulus, selesai);
-  link(gagal, selesai);
+  // jalur manusia (Ya)
+  const cs      = place('slack',       880, 140, 'Teruskan ke CS',  'Notifikasi tim');
+  const endCS   = place('fcEnd',      1140, 140, 'Selesai',         'Ditangani manusia');
+
+  // jalur balas otomatis AI (Tidak) — detail
+  const ambil   = place('http',        880, 440, 'Ambil Konteks',    'Cari data / RAG');
+  const llm     = place('llm',        1140, 440, 'Generate Jawaban', 'LLM susun draf');
+  const yakin   = place('fcDecision', 1400, 440, 'Yakin?',           'Skor keyakinan');
+  const kirim   = place('fcProcess',  1660, 320, 'Kirim Balasan',    'Balas ke pelanggan');
+  const eskal   = place('fcProcess',  1660, 560, 'Eskalasi ke CS',   'Lempar ke agen');
+  const log     = place('database',   1920, 440, 'Simpan Log',       'Catat percakapan');
+  const selesai = place('fcEnd',      2180, 440, 'Selesai',          'Alur berakhir');
+
+  link(chat, ai);
+  link(ai, cek);
+  link(cek, cs, 'Ya');
+  link(cek, ambil, 'Tidak');
+  link(cs, endCS);
+  link(ambil, llm);
+  link(llm, yakin);
+  link(yakin, kirim, 'Ya');
+  link(yakin, eskal, 'Tidak');
+  link(kirim, log);
+  link(eskal, log);
+  link(log, selesai);
 
   renderEdges();
 }
@@ -796,6 +1238,228 @@ function initPersistence() {
   initLoadInput();
 }
 
+function initAiAssistant() {
+  const openBtn = document.getElementById('aiAssistantBtn');
+  const closeBtn = document.getElementById('closeAiAssistantBtn');
+  const panel = document.getElementById('aiAssistantPanel');
+  const loginPanel = document.getElementById('aiLoginPanel');
+  const closeLoginBtn = document.getElementById('closeAiLoginBtn');
+  const loginUser = document.getElementById('aiLoginUsername');
+  const loginPassword = document.getElementById('aiLoginPassword');
+  const loginSubmitBtn = document.getElementById('aiLoginSubmitBtn');
+  const logoutBtn = document.getElementById('aiLogoutBtn');
+  const providerSelect = document.getElementById('aiProvider');
+  const modelInput = document.getElementById('aiModel');
+  const promptInput = document.getElementById('aiPrompt');
+  const sendBtn = document.getElementById('sendAiPromptBtn');
+
+  const openLogin = () => {
+    panel.classList.add('hidden');
+    panel.setAttribute('aria-hidden', 'true');
+    loginPanel.classList.remove('hidden');
+    loginPanel.setAttribute('aria-hidden', 'false');
+    loginUser.focus();
+  };
+  const open = () => {
+    if (!aiAuthState.authenticated) {
+      openLogin();
+      return;
+    }
+    loginPanel.classList.add('hidden');
+    loginPanel.setAttribute('aria-hidden', 'true');
+    panel.classList.remove('hidden');
+    panel.setAttribute('aria-hidden', 'false');
+    scrollAiHistoryToBottom();
+    promptInput.focus();
+  };
+  const close = () => {
+    panel.classList.add('hidden');
+    panel.setAttribute('aria-hidden', 'true');
+    loginPanel.classList.add('hidden');
+    loginPanel.setAttribute('aria-hidden', 'true');
+  };
+
+  openBtn.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    open();
+  });
+  closeBtn.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  });
+  closeLoginBtn.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    close();
+  });
+
+  providerSelect.addEventListener('change', () => {
+    modelInput.value = AI_DEFAULT_MODELS[providerSelect.value] || '';
+  });
+
+  async function refreshAuthUi() {
+    const state = await fetchAiAuthStatus();
+    openBtn.title = state.authenticated
+      ? `AI Assistant (${state.username || 'authenticated'})`
+      : 'Login untuk membuka AI Assistant';
+    if (!state.configured) {
+      setAiLoginStatus('AI login belum dikonfigurasi di server.');
+      loginSubmitBtn.disabled = true;
+      return;
+    }
+    loginSubmitBtn.disabled = false;
+    setAiLoginStatus(
+      state.authenticated
+        ? `Login sebagai ${state.username}.`
+        : 'Masuk untuk memakai AI assistant.'
+    );
+  }
+
+  async function submitLogin() {
+    if (loginSubmitBtn.disabled) return;
+    const username = loginUser.value.trim();
+    const password = loginPassword.value;
+    if (!username || !password) {
+      setAiLoginStatus('Username dan password wajib diisi.');
+      return;
+    }
+    loginSubmitBtn.disabled = true;
+    loginSubmitBtn.textContent = 'Memproses...';
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Login gagal');
+      aiAuthState = {
+        authenticated: true,
+        username: payload.username ?? username,
+        configured: true,
+      };
+      loginPassword.value = '';
+      setAiLoginStatus(`Login sebagai ${aiAuthState.username}.`);
+      await refreshAuthUi();
+      open();
+    } catch (error) {
+      setAiLoginStatus(error instanceof Error ? error.message : 'Login gagal');
+    } finally {
+      loginSubmitBtn.disabled = false;
+      loginSubmitBtn.textContent = 'Login';
+    }
+  }
+
+  loginSubmitBtn.addEventListener('click', submitLogin);
+  loginUser.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitLogin();
+    }
+  });
+  loginPassword.addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitLogin();
+    }
+  });
+
+  logoutBtn.addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    aiAuthState = { authenticated: false, username: null, configured: aiAuthState.configured };
+    close();
+    await refreshAuthUi();
+  });
+
+  promptInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendBtn.click();
+    }
+  });
+
+  sendBtn.addEventListener('click', async () => {
+    const prompt = promptInput.value.trim();
+    if (!prompt || aiBusy) return;
+    if (!aiAuthState.authenticated) {
+      setAiStatus('Login diperlukan.');
+      openLogin();
+      return;
+    }
+
+    appendAiMessage('user', prompt);
+    setAiBusy(true);
+    setAiStatus('Menghubungi model...');
+
+    try {
+      const response = await fetch('/api/ai/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt,
+          provider: providerSelect.value,
+          model: modelInput.value.trim(),
+          workflowName: document.getElementById('wfName').value.trim(),
+          state: structuredClone(getState()),
+        }),
+      });
+
+      const payload = await response.json();
+      if (!response.ok) {
+        if (response.status === 401) {
+          aiAuthState.authenticated = false;
+          await refreshAuthUi();
+          openLogin();
+        }
+        throw new Error(payload.error || 'AI request failed');
+      }
+
+      appendAiMessage('assistant', payload.reply || 'AI merespons tanpa teks.');
+
+      const operations = Array.isArray(payload.operations) ? payload.operations : [];
+      if (operations.length) {
+        const result = applyAiOperations(operations);
+        const summary = [
+          `buat node ${result.createdNodes}`,
+          `buat edge ${result.createdEdges}`,
+          `edit node ${result.updatedNodes}`,
+          `hapus node ${result.deletedNodes}`,
+          `edit edge ${result.updatedEdges}`,
+          `hapus edge ${result.deletedEdges}`,
+          `layout ${result.layoutApplied ? 'ya' : 'tidak'}`,
+        ].join(' · ');
+        setAiStatus(summary);
+        setSaveMessage(summary);
+      } else {
+        setAiStatus('Respons AI diterima');
+        setSaveMessage('AI response received');
+      }
+
+      const usageText = payload.model
+        ? `Provider ${payload.provider} · model ${payload.model}`
+        : 'Respons AI diterima';
+      setAiStatus(usageText);
+      promptInput.value = '';
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'AI request failed';
+      setAiStatus(message);
+      setSaveMessage('AI request failed');
+    } finally {
+      setAiBusy(false);
+    }
+  });
+
+  appendAiMessage(
+    'assistant',
+    'Jelaskan workflow yang Anda inginkan, atau minta saya membuat node dan edge otomatis di canvas ini.'
+  );
+  refreshAuthUi().catch(error => {
+    setAiLoginStatus(error instanceof Error ? error.message : 'Gagal memeriksa status login');
+  });
+}
+
 /* ---- boot ---- */
 initViewport();
 initDrag(canvasArea);
@@ -805,6 +1469,7 @@ initNodeEditor();
 initEdgeActions();
 initZoomControls();
 initPersistence();
+initAiAssistant();
 
 // both side panels start hidden
 showPanel(null);

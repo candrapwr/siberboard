@@ -1,9 +1,35 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SiberBoard — Visual Flow Builder</title>
+
+  <title>SiberBoard — Visual Flow & Flowchart Builder</title>
+  <meta name="description" content="SiberBoard adalah visual flow & flowchart builder berbasis browser dari Datasiber Lab. Rancang alur kerja dan diagram proses secara visual — drag, sambung, simpan, ekspor PNG. Gratis, tanpa instalasi." />
+  <meta name="keywords" content="flowchart, flow builder, diagram alur, workflow editor, visual editor, flowchart online, diagram proses, SiberBoard, Datasiber, Datasiber Lab" />
+  <meta name="author" content="Datasiber Lab" />
+  <meta name="robots" content="index, follow" />
+  <meta name="theme-color" content="#1a1a1a" />
+  <link rel="canonical" href="https://board.datasiber.com/" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='%2322d3ee'/><stop offset='1' stop-color='%232563eb'/></linearGradient></defs><rect width='32' height='32' rx='7' fill='url(%23g)'/><text x='16' y='22' font-family='Arial,Helvetica,sans-serif' font-size='14' font-weight='700' fill='%23ffffff' text-anchor='middle'>SB</text></svg>" />
+
+  <!-- Open Graph (Facebook, WhatsApp, LinkedIn) -->
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="SiberBoard" />
+  <meta property="og:title" content="SiberBoard — Visual Flow & Flowchart Builder" />
+  <meta property="og:description" content="Rancang alur kerja & flowchart secara visual langsung di browser. Drag, sambung, ekspor PNG. Dari Datasiber Lab." />
+  <meta property="og:url" content="https://board.datasiber.com/" />
+  <meta property="og:image" content="https://board.datasiber.com/og-image.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta property="og:locale" content="id_ID" />
+
+  <!-- Twitter / X -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="SiberBoard — Visual Flow & Flowchart Builder" />
+  <meta name="twitter:description" content="Rancang alur kerja & flowchart secara visual langsung di browser. Drag, sambung, ekspor PNG. Dari Datasiber Lab." />
+  <meta name="twitter:image" content="https://board.datasiber.com/og-image.png" />
+
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body { font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
@@ -16,25 +42,55 @@
     }
 
     /* node ports */
-    .input-port, .output-port {
+    .node-port {
       position: absolute;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 14px;
-      height: 14px;
+      width: 10px;
+      height: 10px;
       border-radius: 9999px;
       background: #1a1a1a;
       border: 2px solid #6b7280;
       cursor: crosshair;
       z-index: 5;
-      transition: background 0.1s, border-color 0.1s, transform 0.1s;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.12s, background 0.1s, border-color 0.1s, transform 0.1s;
     }
-    .input-port { left: -7px; }
-    .output-port { right: -7px; }
-    .input-port:hover, .output-port:hover {
+    .node:hover .node-port {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .node-port[data-side="left"] {
+      left: -5px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    .node-port[data-side="right"] {
+      right: -5px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+    .node-port[data-side="top"] {
+      top: -5px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    .node-port[data-side="bottom"] {
+      bottom: -5px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+    .node-port:hover {
       background: #4a90d9;
       border-color: #4a90d9;
+      z-index: 7;
+    }
+    .node-port[data-side="left"]:hover,
+    .node-port[data-side="right"]:hover {
       transform: translateY(-50%) scale(1.25);
+    }
+    .node-port[data-side="top"]:hover,
+    .node-port[data-side="bottom"]:hover {
+      transform: translateX(-50%) scale(1.25);
     }
 
     .icon-box {
@@ -133,7 +189,12 @@
     }
     .node-shaped:hover .node-shape-path,
     .node-shaped:hover .node-shape-line { stroke: #4a90d9; }
-    .node-body { position: relative; z-index: 1; }
+    .node-body {
+      position: relative;
+      z-index: 1;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
 
     /* keep text clear of pointy/narrow corners */
     .node[data-shape="diamond"] .node-body,
@@ -201,6 +262,168 @@
       transition: background 0.1s, border-color 0.1s;
     }
     .icon-pick:hover { background: #2d2d2d; border-color: #4a90d9; }
+
+    .assistant-fab {
+      box-shadow: 0 14px 28px rgba(0, 0, 0, 0.32);
+      background-image: linear-gradient(135deg, #67e8f9, #06b6d4 50%, #0891b2);
+    }
+    .assistant-panel {
+      display: flex;
+      flex-direction: column;
+      width: min(340px, calc(100vw - 1.25rem));
+      height: min(640px, calc(100vh - 1.5rem));
+      max-height: calc(100vh - 1.5rem);
+      background:
+        radial-gradient(circle at top right, rgba(34, 211, 238, 0.14), transparent 34%),
+        linear-gradient(180deg, #1a1d20, #141618 62%, #101113);
+      border: 1px solid rgba(92, 104, 116, 0.35);
+      border-radius: 18px;
+      box-shadow: 0 20px 44px rgba(0, 0, 0, 0.42);
+      overflow: hidden;
+      backdrop-filter: blur(14px);
+    }
+    .assistant-header {
+      background: linear-gradient(180deg, rgba(14, 15, 17, 0.55), rgba(14, 15, 17, 0.15));
+    }
+    .assistant-body {
+      flex: 1 1 auto;
+      min-height: 0;
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
+      scrollbar-color: #3d454d transparent;
+    }
+    .assistant-body::-webkit-scrollbar {
+      width: 10px;
+    }
+    .assistant-body::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .assistant-body::-webkit-scrollbar-thumb {
+      background: #31383f;
+      border-radius: 9999px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    .assistant-msg-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .assistant-msg-row.user {
+      justify-content: flex-end;
+    }
+    .assistant-avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      flex: 0 0 auto;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }
+    .assistant-avatar.assistant {
+      background: linear-gradient(135deg, #155e75, #0f766e);
+      color: #d9fbff;
+    }
+    .assistant-avatar.system {
+      background: linear-gradient(135deg, #374151, #1f2937);
+      color: #e5e7eb;
+    }
+    .assistant-msg-wrap {
+      max-width: 88%;
+      min-width: 0;
+    }
+    .assistant-msg-meta {
+      margin-bottom: 4px;
+      font-size: 9px;
+      line-height: 1;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #7b8794;
+    }
+    .assistant-msg {
+      white-space: pre-wrap;
+      word-break: break-word;
+      border-radius: 14px;
+      padding: 9px 11px;
+      font-size: 12px;
+      line-height: 1.45;
+      user-select: text;
+    }
+    .assistant-msg.user {
+      background: linear-gradient(135deg, #f43f7c, #ea4b71 52%, #cd2f59);
+      color: white;
+      border-bottom-right-radius: 6px;
+    }
+    .assistant-msg.assistant {
+      background: linear-gradient(180deg, rgba(31, 36, 41, 0.96), rgba(24, 28, 32, 0.96));
+      color: #e5e7eb;
+      border: 1px solid rgba(71, 81, 90, 0.45);
+      border-bottom-left-radius: 6px;
+    }
+    .assistant-msg.system {
+      background: linear-gradient(180deg, rgba(15, 38, 52, 0.95), rgba(17, 31, 41, 0.95));
+      color: #cbd5e1;
+      border: 1px solid rgba(46, 86, 118, 0.75);
+    }
+    .assistant-compose {
+      flex: 0 0 auto;
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
+      background: linear-gradient(180deg, rgba(19, 20, 22, 0.55), rgba(14, 15, 17, 0.96));
+    }
+    .assistant-compose textarea,
+    .assistant-compose input,
+    .assistant-compose select {
+      user-select: text;
+    }
+    .assistant-compose textarea {
+      min-height: 0;
+      max-height: 84px;
+    }
+    .assistant-loading {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 16px;
+    }
+    .assistant-loading span {
+      width: 7px;
+      height: 7px;
+      border-radius: 9999px;
+      background: #67e8f9;
+      opacity: 0.35;
+      animation: assistantPulse 0.9s infinite ease-in-out;
+    }
+    .assistant-loading span:nth-child(2) { animation-delay: 0.12s; }
+    .assistant-loading span:nth-child(3) { animation-delay: 0.24s; }
+    .assistant-status-badge {
+      border: 1px solid rgba(71, 81, 90, 0.45);
+      background: rgba(15, 18, 20, 0.7);
+      color: #9ca3af;
+    }
+    .auth-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      filter: grayscale(0.2);
+    }
+    .login-panel {
+      width: min(320px, calc(100vw - 1.25rem));
+      background:
+        radial-gradient(circle at top right, rgba(34, 211, 238, 0.14), transparent 34%),
+        linear-gradient(180deg, #1a1d20, #141618 62%, #101113);
+      border: 1px solid rgba(92, 104, 116, 0.35);
+      border-radius: 18px;
+      box-shadow: 0 20px 44px rgba(0, 0, 0, 0.42);
+      backdrop-filter: blur(14px);
+    }
+    @keyframes assistantPulse {
+      0%, 80%, 100% { transform: translateY(0); opacity: 0.3; }
+      40% { transform: translateY(-3px); opacity: 1; }
+    }
   </style>
 </head>
 <body class="h-screen overflow-hidden flex flex-col bg-[#1a1a1a] text-gray-100">
@@ -288,7 +511,7 @@
     </aside>
 
     <!-- zoom controls -->
-    <div class="ui-chrome absolute bottom-4 left-4 z-30 flex items-center gap-2">
+    <div class="ui-chrome absolute top-4 left-4 z-30 flex items-center gap-2">
       <div class="flex flex-col bg-[#202020] border border-[#2d2d2d] rounded-lg overflow-hidden">
         <button id="zoomIn" class="w-9 h-9 hover:bg-[#2d2d2d] text-lg leading-none">+</button>
         <div class="h-px bg-[#2d2d2d]"></div>
@@ -304,9 +527,93 @@
       <button id="deleteEdgeBtn" type="button">Hapus</button>
     </div>
 
+    <button id="aiAssistantBtn"
+      class="assistant-fab ui-chrome absolute left-4 bottom-4 z-30 px-3.5 h-10 rounded-full bg-cyan-500 hover:bg-cyan-400 text-[#062131] text-xs font-semibold flex items-center gap-2">
+      <span>AI</span>
+      <span>Assistant</span>
+    </button>
+
+    <section id="aiLoginPanel"
+      class="login-panel ui-chrome absolute left-4 top-4 z-40 hidden"
+      aria-hidden="true">
+      <div class="px-3 h-11 border-b border-[#2d2d2d] flex items-center justify-between">
+        <div>
+          <div class="text-xs font-semibold">AI Login</div>
+          <div class="text-[10px] text-gray-500">Akses assistant hanya untuk user login</div>
+        </div>
+        <button id="closeAiLoginBtn" class="w-7 h-7 rounded-md hover:bg-[#232323] text-gray-400 text-sm">✕</button>
+      </div>
+      <div class="p-3 flex flex-col gap-3">
+        <label>
+          <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Username</span>
+          <input id="aiLoginUsername" type="text"
+            class="w-full bg-[#111111] border border-[#353535] rounded-md px-3 py-2 text-xs focus:outline-none focus:border-cyan-500" />
+        </label>
+        <label>
+          <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Password</span>
+          <input id="aiLoginPassword" type="password"
+            class="w-full bg-[#111111] border border-[#353535] rounded-md px-3 py-2 text-xs focus:outline-none focus:border-cyan-500" />
+        </label>
+        <div class="flex items-center justify-between gap-2">
+          <div id="aiLoginStatus" class="text-[10px] text-gray-500">Masuk untuk memakai AI assistant.</div>
+          <button id="aiLoginSubmitBtn"
+            type="button"
+            class="auth-btn px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-[#062131] text-xs font-semibold">
+            Login
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <section id="aiAssistantPanel"
+      class="assistant-panel ui-chrome absolute left-4 top-4 z-40 hidden"
+      aria-hidden="true">
+      <div id="aiAssistantHeader" class="assistant-header px-3 h-11 border-b border-[#2d2d2d] flex items-center justify-between shrink-0">
+        <div class="pointer-events-none">
+          <div class="text-xs font-semibold">AI Assistant</div>
+          <div class="text-[10px] text-gray-500">Generate node dan edge langsung ke canvas</div>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <button id="aiLogoutBtn" class="px-2 py-1 rounded-md hover:bg-[#232323] text-[10px] text-gray-300">Logout</button>
+          <button id="closeAiAssistantBtn" class="w-7 h-7 rounded-md hover:bg-[#232323] text-gray-400 text-sm">✕</button>
+        </div>
+      </div>
+
+      <div class="px-3 py-2 border-b border-[#2d2d2d] grid grid-cols-2 gap-2 shrink-0">
+        <label class="col-span-1">
+          <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Provider</span>
+          <select id="aiProvider"
+            class="w-full bg-[#111111] border border-[#353535] rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500">
+            <option value="deepseek">DeepSeek</option>
+            <option value="grok">Grok</option>
+          </select>
+        </label>
+        <label class="col-span-1">
+          <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Model</span>
+          <input id="aiModel" type="text" value="deepseek-chat"
+            class="w-full bg-[#111111] border border-[#353535] rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500" />
+        </label>
+      </div>
+
+      <div id="aiMessages" class="assistant-body flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2.5"></div>
+
+      <div class="assistant-compose p-3 border-t border-[#2d2d2d] shrink-0">
+        <textarea id="aiPrompt" rows="2"
+          class="w-full resize-none bg-[#111111] border border-[#353535] rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:border-cyan-500"
+          placeholder="Tulis instruksi singkat..."></textarea>
+        <div class="mt-2.5 flex items-center justify-between gap-2">
+          <div id="aiStatus" class="assistant-status-badge text-[10px] rounded-full px-2 py-1">Server endpoint: <code>/api/ai/chat</code></div>
+          <button id="sendAiPromptBtn"
+            class="px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-[#062131] text-xs font-semibold">
+            Kirim
+          </button>
+        </div>
+      </div>
+    </section>
+
     <input id="loadUiInput" type="file" accept=".json,application/json" class="hidden" />
   </main>
 
-  <script type="module" src="src/main.js?v=12"></script>
+  <script type="module" src="src/main.js?v=16"></script>
 </body>
 </html>

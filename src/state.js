@@ -25,6 +25,8 @@ function cloneEdge(edge) {
     from: edge.from,
     to: edge.to,
     label: edge.label ?? '',
+    fromSide: edge.fromSide ?? 'right',
+    toSide: edge.toSide ?? 'left',
   };
 }
 
@@ -69,11 +71,11 @@ export function resizeNode(id, width, height) {
   }
 }
 
-export function addEdge(from, to) {
+export function addEdge(from, to, fromSide = 'right', toSide = 'left') {
   if (from === to) return null;
   const exists = state.edges.some(e => e.from === from && e.to === to);
   if (exists) return null;
-  const edge = { from, to, label: '' };
+  const edge = { from, to, label: '', fromSide, toSide };
   state.edges.push(edge);
   return edge;
 }
