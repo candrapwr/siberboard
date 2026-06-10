@@ -44,7 +44,7 @@ const PROVIDERS = {
     label: 'Grok',
     envKey: 'GROK_API_KEY',
     baseUrl: process.env.GROK_BASE_URL || 'https://api.x.ai/v1',
-    defaultModel: process.env.GROK_MODEL || 'grok-build-0.1',
+    defaultModel: process.env.GROK_MODEL || 'grok-3-mini',
   },
 };
 
@@ -64,6 +64,7 @@ const nodeTypeSummary = Object.entries(NODE_TYPES)
   .map(([key, info]) => `${key}: ${info.label} | ${info.sub} | ports=${info.ports.join(',')} | category=${info.cat}`)
   .join('\n');
 const PORT_SIDES = new Set(['left', 'right', 'top', 'bottom']);
+const LAYOUT_ORIENTATIONS = new Set(['horizontal', 'vertical']);
 
 const systemPrompt = `You are the AI assistant for SiberBoard, a browser workflow and flowchart builder.
 You help users in two ways:
@@ -135,7 +136,8 @@ The response schema is:
       "toMatchLabel": "Analisa Maksud"
     },
     {
-      "type": "auto_layout"
+      "type": "auto_layout",
+      "orientation": "vertical"
     }
   ]
 }
@@ -144,7 +146,8 @@ Rules:
 - Return only JSON.
 - If the user only asks for explanation, keep "operations" as an empty array.
 - Use only valid nodeType values from the list below.
-- Prefer left-to-right layouts with roughly 240-280px horizontal spacing and 140-200px vertical spacing.
+- For flowcharts, prefer top-to-bottom layouts unless the user explicitly asks for horizontal.
+- For general workflow graphs, horizontal or vertical is allowed, but keep the structure readable.
 - For flowchart nodes, icon can be empty.
 - Never invent node types.
 - For existing nodes on the canvas, prefer using nodeId from the current canvas state.
@@ -153,7 +156,8 @@ Rules:
 - For connecting existing nodes, create_edge may use fromNodeId/toNodeId or fromMatchLabel/toMatchLabel.
 - Valid port sides are: left, right, top, bottom.
 - Use fromSide/toSide when you want cleaner routing, for example vertical flows can use bottom -> top.
-- If the user asks to tidy, align, or reduce crossing lines, you may add an auto_layout operation.
+- If the user asks to tidy, align, reduce crossing lines, or switch orientation, you may add an auto_layout operation.
+- Valid auto_layout orientations are: horizontal, vertical.
 - Keep reply concise.
 
 Available node types:
@@ -226,6 +230,59 @@ function stripJsonFences(text) {
 
 function normalizeSide(value, fallback) {
   return PORT_SIDES.has(value) ? value : fallback;
+}
+
+function normalizeOrientation(value, fallback = 'vertical') {
+  return LAYOUT_ORIENTATIONS.has(value) ? value : fallback;
+}
+
+function extractJsonCandidate(text) {
+  const cleaned = stripJsonFences(text).trim();
+  if (!cleaned) return '';
+  if (cleaned.startsWith('{') && cleaned.endsWith('}')) return cleaned;
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start !== -1 && end !== -1 && end > start) {
+    return cleaned.slice(start, end + 1);
+  }
+  return cleaned;
+}
+
+function extractResponsesText(data) {
+  if (typeof data?.output_text === 'string' && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  const chunks = [];
+  for (const item of data?.output || []) {
+    if (typeof item?.content === 'string' && item.content.trim()) {
+      chunks.push(item.content.trim());
+      continue;
+    }
+    for (const part of item?.content || []) {
+      if (typeof part?.text === 'string' && part.text.trim()) {
+        chunks.push(part.text.trim());
+        continue;
+      }
+      if (typeof part?.content === 'string' && part.content.trim()) {
+        chunks.push(part.content.trim());
+      }
+    }
+  }
+
+  return chunks.join('\n').trim();
+}
+
+function parseAssistantPayloadFromText(text) {
+  const candidate = extractJsonCandidate(text);
+  try {
+    return validateAiResponse(JSON.parse(candidate));
+  } catch {
+    return validateAiResponse({
+      reply: text.trim(),
+      operations: [],
+    });
+  }
 }
 
 function validateAiResponse(payload) {
@@ -320,14 +377,17 @@ function validateAiResponse(payload) {
     }
 
     if (op.type === 'auto_layout') {
-      validOps.push({ type: 'auto_layout' });
+      validOps.push({
+        type: 'auto_layout',
+        orientation: normalizeOrientation(op.orientation, 'vertical'),
+      });
     }
   }
 
   return { reply, operations: validOps };
 }
 
-async function callProvider({ providerName, model, messages }) {
+async function callProvider({ providerName, model, messages, imageDataUrl }) {
   const provider = PROVIDERS[providerName];
   if (!provider) {
     throw new Error(`Unsupported provider: ${providerName}`);
@@ -336,6 +396,59 @@ async function callProvider({ providerName, model, messages }) {
   const apiKey = process.env[provider.envKey];
   if (!apiKey) {
     throw new Error(`Missing ${provider.envKey} in server environment`);
+  }
+
+  if (providerName === 'grok' && imageDataUrl) {
+    const requestedModel = model || provider.defaultModel;
+    const imageCapableModel = requestedModel.startsWith('grok-3-mini') ? 'grok-4.3' : requestedModel;
+    const systemMessage = messages.find(message => message.role === 'system')?.content || '';
+    const userMessage = messages.findLast(message => message.role === 'user')?.content || '';
+
+    const response = await fetch(`${provider.baseUrl}/responses`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: imageCapableModel,
+        store: false,
+        input: [
+          { role: 'system', content: systemMessage },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'input_image',
+                image_url: imageDataUrl,
+                detail: 'high',
+              },
+              {
+                type: 'input_text',
+                text: userMessage,
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`${provider.label} API error ${response.status}: ${detail}`);
+    }
+
+    const data = await response.json();
+    const content = extractResponsesText(data);
+    if (typeof content !== 'string' || !content.trim()) {
+      throw new Error('Model returned empty content');
+    }
+
+    return {
+      usage: data?.usage ?? null,
+      resolvedModel: imageCapableModel,
+      parsed: parseAssistantPayloadFromText(content),
+    };
   }
 
   const response = await fetch(`${provider.baseUrl}/chat/completions`, {
@@ -365,7 +478,8 @@ async function callProvider({ providerName, model, messages }) {
 
   return {
     usage: data?.usage ?? null,
-    parsed: validateAiResponse(JSON.parse(stripJsonFences(content))),
+    resolvedModel: model || provider.defaultModel,
+    parsed: parseAssistantPayloadFromText(content),
   };
 }
 
@@ -390,6 +504,7 @@ async function handleAiChat(req, res) {
     const result = await callProvider({
       providerName,
       model: typeof body.model === 'string' ? body.model.trim() : '',
+      imageDataUrl: providerName === 'grok' && typeof body.imageDataUrl === 'string' ? body.imageDataUrl : '',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: buildUserPrompt(body) },
@@ -398,7 +513,7 @@ async function handleAiChat(req, res) {
 
     sendJson(res, 200, {
       provider: providerName,
-      model: body.model || PROVIDERS[providerName].defaultModel,
+      model: result.resolvedModel || body.model || PROVIDERS[providerName].defaultModel,
       reply: result.parsed.reply,
       operations: result.parsed.operations,
       usage: result.usage,

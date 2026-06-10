@@ -1,11 +1,12 @@
-import { moveNode, addEdge, getNode, resizeNode } from './state.js';
+import { moveNode, addEdge, getNode, resizeNode, getEdge, removeEdge, updateEdge } from './state.js';
 import { MIN_NODE_WIDTH, MIN_NODE_HEIGHT } from './constants.js';
 import { renderEdges, buildEdgePath, portXY } from './bezier.js';
 import { view, applyTransform, screenToWorld } from './viewport.js';
 
-let mode = null;            // 'node' | 'resize' | 'connect' | 'pan'
+let mode = null;            // 'node' | 'resize' | 'connect' | 'reconnect' | 'pan'
 let dragId = null;
 let selectedFrom = null;
+let reconnectEdge = null;
 
 let startClientX = 0;
 let startClientY = 0;
@@ -15,6 +16,10 @@ let startNodeWidth = 0;
 let startNodeHeight = 0;
 let startPanX = 0;
 let startPanY = 0;
+
+function notifyWorkflowChanged() {
+  document.dispatchEvent(new CustomEvent('workflow:changed'));
+}
 
 export function initDrag(area) {
   area.addEventListener('mousedown', onMouseDown);
@@ -35,6 +40,26 @@ function onMouseDown(e) {
   if (e.target.closest('.node-toolbar')) return;
   // ignore UI chrome (side panels, controls) so they don't trigger pan
   if (e.target.closest('.ui-chrome')) return;
+
+  const edgeEndpoint = e.target.closest('.edge-endpoint');
+  if (edgeEndpoint) {
+    const group = edgeEndpoint.closest('.edge-group');
+    const from = Number(group.dataset.from);
+    const to = Number(group.dataset.to);
+    const edge = getEdge(from, to);
+    if (!edge) return;
+    mode = 'reconnect';
+    reconnectEdge = {
+      from,
+      to,
+      label: edge.label,
+      fromSide: edge.fromSide ?? 'right',
+      toSide: edge.toSide ?? 'left',
+      endpoint: edgeEndpoint.dataset.endpoint,
+    };
+    return;
+  }
+
   // let edges handle their own click-to-delete (don't start panning)
   if (e.target.closest('.edge-group')) return;
 
@@ -65,6 +90,7 @@ function onMouseDown(e) {
     if (selectedFrom !== null) {
       addEdge(selectedFrom.id, id, selectedFrom.side, side);
       renderEdges();
+      notifyWorkflowChanged();
       selectedFrom = null;
       mode = null;
       return;
@@ -120,6 +146,39 @@ function onMouseMove(e) {
     return;
   }
 
+  if (mode === 'reconnect') {
+    const fromNode = getNode(reconnectEdge.from);
+    const toNode = getNode(reconnectEdge.to);
+    if (!fromNode || !toNode) return;
+
+    const movingFrom = reconnectEdge.endpoint === 'from';
+    const fixedNode = movingFrom ? toNode : fromNode;
+    const fixedSide = movingFrom ? reconnectEdge.toSide : reconnectEdge.fromSide;
+    const fixedPoint = portXY(fixedNode, fixedSide);
+    const movingPoint = screenToWorld(e.clientX, e.clientY);
+    const movingSide = movingFrom ? reconnectEdge.fromSide : reconnectEdge.toSide;
+
+    const d = movingFrom
+      ? buildEdgePath(movingPoint.x, movingPoint.y, fixedPoint.x, fixedPoint.y, movingSide, fixedSide)
+      : buildEdgePath(fixedPoint.x, fixedPoint.y, movingPoint.x, movingPoint.y, fixedSide, movingSide);
+
+    const svg = document.getElementById('edgeLayer');
+    let temp = svg.querySelector('.temp-edge');
+    if (temp) {
+      temp.setAttribute('d', d);
+    } else {
+      temp = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      temp.setAttribute('d', d);
+      temp.setAttribute('fill', 'none');
+      temp.setAttribute('stroke', '#fbbf24');
+      temp.setAttribute('stroke-width', '2');
+      temp.setAttribute('stroke-dasharray', '6,4');
+      temp.classList.add('temp-edge');
+      svg.appendChild(temp);
+    }
+    return;
+  }
+
   if (mode === 'node') {
     const nx = startNodeX + (e.clientX - startClientX) / view.zoom;
     const ny = startNodeY + (e.clientY - startClientY) / view.zoom;
@@ -127,6 +186,7 @@ function onMouseMove(e) {
     const el = getNodeEl(dragId);
     if (el) { el.style.left = nx + 'px'; el.style.top = ny + 'px'; }
     renderEdges();
+    notifyWorkflowChanged();
     return;
   }
 
@@ -140,6 +200,7 @@ function onMouseMove(e) {
       el.style.height = height + 'px';
     }
     renderEdges();
+    notifyWorkflowChanged();
     return;
   }
 
@@ -157,11 +218,40 @@ function onMouseUp(e) {
       const toId = Number(port.closest('[data-node-id]').dataset.nodeId);
       const toSide = port.dataset.side || 'left';
       addEdge(selectedFrom.id, toId, selectedFrom.side, toSide);
+      notifyWorkflowChanged();
     }
     const temp = document.querySelector('.temp-edge');
     if (temp) temp.remove();
     renderEdges();
     selectedFrom = null;
+  }
+
+  if (mode === 'reconnect') {
+    const port = e.target.closest('.node-port');
+    if (port && reconnectEdge) {
+      const targetId = Number(port.closest('[data-node-id]').dataset.nodeId);
+      const targetSide = port.dataset.side || 'left';
+      const movingFrom = reconnectEdge.endpoint === 'from';
+
+      const nextFrom = movingFrom ? targetId : reconnectEdge.from;
+      const nextTo = movingFrom ? reconnectEdge.to : targetId;
+      const nextFromSide = movingFrom ? targetSide : reconnectEdge.fromSide;
+      const nextToSide = movingFrom ? reconnectEdge.toSide : targetSide;
+
+      removeEdge(reconnectEdge.from, reconnectEdge.to);
+      const nextEdge = addEdge(nextFrom, nextTo, nextFromSide, nextToSide);
+      if (nextEdge) {
+        updateEdge(nextFrom, nextTo, { label: reconnectEdge.label });
+      } else {
+        const restored = addEdge(reconnectEdge.from, reconnectEdge.to, reconnectEdge.fromSide, reconnectEdge.toSide);
+        if (restored) updateEdge(reconnectEdge.from, reconnectEdge.to, { label: reconnectEdge.label });
+      }
+      notifyWorkflowChanged();
+    }
+    const temp = document.querySelector('.temp-edge');
+    if (temp) temp.remove();
+    renderEdges();
+    reconnectEdge = null;
   }
 
   if (mode === 'node') {

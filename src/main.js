@@ -11,10 +11,12 @@ let currentFileName = null;
 let aiBusy = false;
 let aiLoadingEl = null;
 let aiAuthState = { authenticated: false, username: null, configured: true };
+let aiImageContext = null;
+const LOCAL_STORAGE_KEY = 'siberboard.localWorkflow.v1';
 
 const AI_DEFAULT_MODELS = {
   deepseek: 'deepseek-chat',
-  grok: 'grok-build-0.1',
+  grok: 'grok-3-mini',
 };
 
 // Flowchart shape outlines drawn in a 0..100 box and stretched to the node size
@@ -135,6 +137,7 @@ function spawnNode(type, x, y) {
   const node = addNode(type, x, y);
   viewport.appendChild(createNodeElement(node));
   renderEdges();
+  persistLocalWorkflow();
   return node;
 }
 
@@ -232,6 +235,7 @@ function initNodeActions() {
       removeNode(id);
       el.remove();
       renderEdges();
+      persistLocalWorkflow();
       if (editingId === id) closeEditor();
       return;
     }
@@ -323,12 +327,14 @@ function initNodeEditor() {
     if (editingId === null) return;
     updateNode(editingId, { label: labelInput.value });
     refreshNode(editingId);
+    persistLocalWorkflow();
   });
 
   subInput.addEventListener('input', () => {
     if (editingId === null) return;
     updateNode(editingId, { sub: subInput.value });
     refreshNode(editingId);
+    persistLocalWorkflow();
   });
 
   iconInput.addEventListener('input', () => setIcon(iconInput.value.trim()));
@@ -380,6 +386,7 @@ function initEdgeActions() {
     if (next === null) return;
     updateEdge(activeEdgeMenu.from, activeEdgeMenu.to, { label: next.trim() });
     renderEdges();
+    persistLocalWorkflow();
     hideEdgeMenu();
   });
 
@@ -387,6 +394,7 @@ function initEdgeActions() {
     if (!activeEdgeMenu) return;
     removeEdge(activeEdgeMenu.from, activeEdgeMenu.to);
     renderEdges();
+    persistLocalWorkflow();
     hideEdgeMenu();
   });
 
@@ -439,6 +447,59 @@ function setAiStatus(message) {
 function setAiLoginStatus(message) {
   const el = document.getElementById('aiLoginStatus');
   if (el) el.textContent = message;
+}
+
+function persistLocalWorkflow() {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(snapshotWorkflow()));
+  } catch (error) {
+    console.error('Local save failed', error);
+  }
+}
+
+function clearLocalWorkflow() {
+  try {
+    localStorage.removeItem(LOCAL_STORAGE_KEY);
+  } catch (error) {
+    console.error('Local clear failed', error);
+  }
+}
+
+function restoreLocalWorkflow() {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) return false;
+    const payload = JSON.parse(raw);
+    if (!payload?.state?.nodes?.length && !payload?.state?.edges?.length) return false;
+    applyWorkflow(payload, null);
+    setSaveMessage('Restored local draft');
+    return true;
+  } catch (error) {
+    console.error('Local restore failed', error);
+    return false;
+  }
+}
+
+function refreshAiImageUi(provider = null) {
+  const resolvedProvider = provider || document.getElementById('aiProvider')?.value || 'deepseek';
+  const row = document.getElementById('aiImageRow');
+  const clearBtn = document.getElementById('aiImageClearBtn');
+  const wrap = document.getElementById('aiImagePreviewWrap');
+  const preview = document.getElementById('aiImagePreview');
+  const nameEl = document.getElementById('aiImageName');
+  if (!row) return;
+
+  const isGrok = resolvedProvider === 'grok';
+  row.classList.toggle('hidden', !isGrok);
+  if (!isGrok) return;
+
+  const hasImage = Boolean(aiImageContext);
+  clearBtn.classList.toggle('hidden', !hasImage);
+  wrap.classList.toggle('hidden', !hasImage);
+  if (hasImage) {
+    preview.src = aiImageContext.dataUrl;
+    nameEl.textContent = aiImageContext.name;
+  }
 }
 
 function scrollAiHistoryToBottom() {
@@ -570,7 +631,14 @@ function sortNodesForLayout(ids) {
   });
 }
 
-function autoLayoutGraph() {
+function detectPreferredLayoutOrientation() {
+  const nodes = getState().nodes;
+  if (!nodes.length) return 'vertical';
+  const flowchartCount = nodes.filter(node => (NODE_TYPES[node.type] || NODE_TYPES.set).cat === 'flowchart').length;
+  return flowchartCount >= Math.ceil(nodes.length / 2) ? 'vertical' : 'horizontal';
+}
+
+function autoLayoutGraph(orientation = detectPreferredLayoutOrientation()) {
   const { nodes, edges } = getState();
   if (nodes.length < 2) return false;
 
@@ -668,7 +736,8 @@ function autoLayoutGraph() {
   }
 
   const maxWidth = Math.max(...nodes.map(node => node.width));
-  const columnGap = maxWidth + 170;
+  const maxHeight = Math.max(...nodes.map(node => node.height));
+  const primaryGap = orientation === 'vertical' ? maxHeight + 130 : maxWidth + 170;
   const rowGap = 150;
   const startX = 120;
   const startY = 100;
@@ -676,17 +745,25 @@ function autoLayoutGraph() {
 
   for (const ids of layers) {
     if (!ids?.length) continue;
-    const totalHeight = ids.reduce((sum, id, idx) => {
+    const totalSpan = ids.reduce((sum, id, idx) => {
       const node = getNode(id);
-      return sum + node.height + (idx > 0 ? rowGap : 0);
+      const size = orientation === 'vertical' ? node.width : node.height;
+      return sum + size + (idx > 0 ? rowGap : 0);
     }, 0);
-    let cursorY = startY - totalHeight / 2 + 280;
+    let cursor = (orientation === 'vertical' ? startX : startY) - totalSpan / 2 + 280;
 
     for (const id of ids) {
       const node = getNode(id);
-      const x = startX + layer.get(id) * columnGap;
-      nextPositions.set(id, { x, y: cursorY });
-      cursorY += node.height + rowGap;
+      if (orientation === 'vertical') {
+        const y = startY + layer.get(id) * primaryGap;
+        const x = cursor;
+        nextPositions.set(id, { x, y });
+        cursor += node.width + rowGap;
+      } else {
+        const x = startX + layer.get(id) * primaryGap;
+        nextPositions.set(id, { x, y: cursor });
+        cursor += node.height + rowGap;
+      }
     }
   }
 
@@ -714,6 +791,7 @@ function applyAiOperations(operations) {
   let updatedEdges = 0;
   let deletedEdges = 0;
   let autoLayoutRequested = false;
+  let requestedLayoutOrientation = null;
 
   for (const op of operations) {
     if (op.type !== 'create_node' || !NODE_TYPES[op.nodeType]) continue;
@@ -816,13 +894,25 @@ function applyAiOperations(operations) {
 
     if (op.type === 'auto_layout') {
       autoLayoutRequested = true;
+      requestedLayoutOrientation = op.orientation || requestedLayoutOrientation;
     }
   }
 
   const hasStructuralChanges = createdNodes || createdEdges || deletedNodes || deletedEdges;
-  const layoutApplied = (autoLayoutRequested || hasStructuralChanges) ? autoLayoutGraph() : false;
+  const layoutApplied = (autoLayoutRequested || hasStructuralChanges)
+    ? autoLayoutGraph(requestedLayoutOrientation || detectPreferredLayoutOrientation())
+    : false;
   renderEdges();
-  return { createdNodes, createdEdges, updatedNodes, deletedNodes, updatedEdges, deletedEdges, layoutApplied };
+  return {
+    createdNodes,
+    createdEdges,
+    updatedNodes,
+    deletedNodes,
+    updatedEdges,
+    deletedEdges,
+    layoutApplied,
+    layoutOrientation: requestedLayoutOrientation || detectPreferredLayoutOrientation(),
+  };
 }
 
 function applyWorkflow(payload, sourceName = null) {
@@ -840,6 +930,7 @@ function applyWorkflow(payload, sourceName = null) {
   closeEditor();
   hideEdgeMenu();
   currentFileName = sourceName;
+  persistLocalWorkflow();
 }
 
 async function saveWorkflow() {
@@ -860,6 +951,7 @@ async function saveWorkflow() {
       await writable.write(json);
       await writable.close();
       currentFileName = handle.name;
+      persistLocalWorkflow();
       setSaveMessage(`Saved ${handle.name}`);
       return;
     }
@@ -874,6 +966,7 @@ async function saveWorkflow() {
     link.remove();
     URL.revokeObjectURL(url);
     currentFileName = suggestedName;
+    persistLocalWorkflow();
     setSaveMessage(`Downloaded ${suggestedName}`);
   } catch (error) {
     if (error?.name === 'AbortError') return;
@@ -1227,10 +1320,13 @@ function clearWorkflow() {
   closeEditor();
   hideEdgeMenu();
   currentFileName = null;
+  clearLocalWorkflow();
   setSaveMessage('Cleared');
 }
 
 function initPersistence() {
+  document.getElementById('wfName').addEventListener('input', persistLocalWorkflow);
+  document.addEventListener('workflow:changed', persistLocalWorkflow);
   document.getElementById('saveUiBtn').addEventListener('click', saveWorkflow);
   document.getElementById('loadUiBtn').addEventListener('click', loadWorkflow);
   document.getElementById('clearBtn').addEventListener('click', clearWorkflow);
@@ -1250,6 +1346,9 @@ function initAiAssistant() {
   const logoutBtn = document.getElementById('aiLogoutBtn');
   const providerSelect = document.getElementById('aiProvider');
   const modelInput = document.getElementById('aiModel');
+  const imageInput = document.getElementById('aiImageInput');
+  const imageSelectBtn = document.getElementById('aiImageSelectBtn');
+  const imageClearBtn = document.getElementById('aiImageClearBtn');
   const promptInput = document.getElementById('aiPrompt');
   const sendBtn = document.getElementById('sendAiPromptBtn');
 
@@ -1297,6 +1396,45 @@ function initAiAssistant() {
 
   providerSelect.addEventListener('change', () => {
     modelInput.value = AI_DEFAULT_MODELS[providerSelect.value] || '';
+    refreshAiImageUi(providerSelect.value);
+  });
+
+  imageSelectBtn.addEventListener('click', () => {
+    imageInput.click();
+  });
+
+  imageClearBtn.addEventListener('click', () => {
+    aiImageContext = null;
+    imageInput.value = '';
+    refreshAiImageUi(providerSelect.value);
+    setAiStatus('Gambar context dihapus.');
+  });
+
+  imageInput.addEventListener('change', async e => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      setAiStatus('Format gambar harus PNG atau JPEG.');
+      imageInput.value = '';
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setAiStatus('Ukuran gambar maksimal 20MiB.');
+      imageInput.value = '';
+      return;
+    }
+    const dataUrl = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('Gagal membaca gambar'));
+      reader.readAsDataURL(file);
+    });
+    aiImageContext = {
+      name: file.name,
+      dataUrl,
+    };
+    refreshAiImageUi(providerSelect.value);
+    setAiStatus(`Gambar aktif: ${file.name}`);
   });
 
   async function refreshAuthUi() {
@@ -1401,6 +1539,7 @@ function initAiAssistant() {
           prompt,
           provider: providerSelect.value,
           model: modelInput.value.trim(),
+          imageDataUrl: providerSelect.value === 'grok' ? aiImageContext?.dataUrl || '' : '',
           workflowName: document.getElementById('wfName').value.trim(),
           state: structuredClone(getState()),
         }),
@@ -1428,7 +1567,7 @@ function initAiAssistant() {
           `hapus node ${result.deletedNodes}`,
           `edit edge ${result.updatedEdges}`,
           `hapus edge ${result.deletedEdges}`,
-          `layout ${result.layoutApplied ? 'ya' : 'tidak'}`,
+          `layout ${result.layoutApplied ? result.layoutOrientation : 'tidak'}`,
         ].join(' · ');
         setAiStatus(summary);
         setSaveMessage(summary);
@@ -1455,6 +1594,7 @@ function initAiAssistant() {
     'assistant',
     'Jelaskan workflow yang Anda inginkan, atau minta saya membuat node dan edge otomatis di canvas ini.'
   );
+  refreshAiImageUi();
   refreshAuthUi().catch(error => {
     setAiLoginStatus(error instanceof Error ? error.message : 'Gagal memeriksa status login');
   });
@@ -1473,5 +1613,8 @@ initAiAssistant();
 
 // both side panels start hidden
 showPanel(null);
-seedSampleWorkflow();
+if (!restoreLocalWorkflow()) {
+  seedSampleWorkflow();
+  persistLocalWorkflow();
+}
 applyTransform();
