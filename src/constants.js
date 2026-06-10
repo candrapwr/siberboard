@@ -1,6 +1,6 @@
 export const NODE_WIDTH = 210;
 export const NODE_HEIGHT = 72;
-export const MIN_NODE_WIDTH = 170;
+export const MIN_NODE_WIDTH = 80;
 export const MIN_NODE_HEIGHT = NODE_HEIGHT;
 
 // Each category drives the accent color of its nodes.

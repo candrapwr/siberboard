@@ -6,7 +6,7 @@
 // Runtime stays 100% static; Node is only needed at build time.
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
-import { rmSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { rmSync, mkdirSync, readFileSync, writeFileSync, existsSync, copyFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -56,5 +56,18 @@ html = html
   );
 writeFileSync(join(dist, 'index.html'), html);
 
+// 6. copy optional static/SEO assets into dist if present
+const copied = [];
+for (const f of ['robots.txt', 'sitemap.xml', 'og-image.png', 'favicon.ico']) {
+  if (existsSync(join(root, f))) {
+    copyFileSync(join(root, f), join(dist, f));
+    copied.push(f);
+  }
+}
+
 console.log(`\n✓ Build complete → dist/  (deploy this folder)`);
 console.log(`  styles.css?v=${cssV}   app.js?v=${appV}`);
+if (copied.length) console.log(`  assets: ${copied.join(', ')}`);
+if (!existsSync(join(root, 'og-image.png'))) {
+  console.log(`  note: og-image.png belum ada — export dari og-image.svg agar preview sosial muncul.`);
+}

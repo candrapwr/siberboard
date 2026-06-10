@@ -2,9 +2,9 @@
 
 # 🟦 SiberBoard
 
-**Visual flow & flowchart builder yang ringan, langsung jalan di browser.**
+**Visual flow & flowchart builder ringan dengan AI assistant opsional.**
 
-Rancang alur kerja, diagram proses, dan flowchart secara visual — drag, sambung, simpan, ekspor. Tanpa instalasi, tanpa akun.
+Rancang alur kerja, flowchart, dan diagram proses secara visual di browser: drag, sambung, simpan, ekspor, dan bantu generate lewat AI.
 
 _Sebuah produk dari **Datasiber Lab** · `board.datasiber.com`_
 
@@ -14,90 +14,138 @@ _Sebuah produk dari **Datasiber Lab** · `board.datasiber.com`_
 
 ## Apa itu SiberBoard?
 
-SiberBoard adalah kanvas visual untuk membangun **alur kerja (workflow)** dan **flowchart**. Tambahkan node dari panel, hubungkan lewat port, beri label, lalu simpan atau ekspor jadi gambar. Semua berjalan di sisi browser — cepat, privat, dan tanpa setup.
+SiberBoard adalah kanvas visual untuk membangun **workflow** dan **flowchart**. Anda bisa menambah node, menghubungkan konektor, memberi label, menyimpan board, ekspor PNG, dan memakai **AI assistant** untuk membuat atau merapikan diagram.
 
 Cocok untuk:
 
 - Membuat **flowchart** dan diagram proses.
-- Merancang sketsa **alur kerja / automasi** secara visual.
-- Membuat diagram cepat untuk dokumentasi atau presentasi.
+- Merancang alur kerja / automasi secara visual.
+- Menyusun diagram cepat untuk dokumentasi atau presentasi.
 
 ## Fitur
 
-- 🧩 **Banyak jenis node** — Triggers, Flow, Data, Integrations, AI, dan node kosong (Blank).
-- 🔷 **Grup Flowchart dengan bentuk asli** — Start/End (terminator), Process, Decision (diamond), Input/Output (parallelogram), Document, Database, dan lainnya.
-- 🔌 **Sambungkan node** lewat port input/output dengan garis kurva (bezier) yang rapi.
-- 🏷️ **Label konektor** pada setiap garis untuk menandai cabang (mis. Yes / No).
-- ✏️ **Edit cepat** label, deskripsi, dan icon node lewat panel editor.
-- 🔍 **Pan & zoom** kanvas dengan mudah.
-- 📐 **Resize node** sesuka hati; garis otomatis menyesuaikan.
-- 🖼️ **Export PNG** — dengan background atau **transparan**.
+- 🧩 **Banyak jenis node** — Flowchart, Blank, Triggers, Flow, Data & Code, Integrations, AI.
+- 🔷 **Node flowchart dengan bentuk asli** — Start/End, Process, Decision, Input/Output, Document, Database, dan lainnya.
+- 🔌 **4 titik konektor per node** — kiri, kanan, atas, bawah.
+- 🏷️ **Label konektor** untuk cabang seperti `Ya` / `Tidak`.
+- ✏️ **Edit node** — ubah label, deskripsi, dan icon.
+- 🔍 **Pan & zoom** kanvas.
+- 📐 **Resize node** dan edge akan ikut menyesuaikan.
+- 🖼️ **Export PNG** — background gelap atau transparan.
 - 💾 **Save & Load** board sebagai file JSON.
-- 🧹 **Clear** untuk mengosongkan kanvas dalam sekali klik.
+- 🧹 **Clear** untuk mengosongkan board.
+- 🤖 **AI Assistant** — generate node, koneksi, edit node/edge, hapus elemen, dan auto-layout.
+- 🔐 **Login untuk AI Assistant** — akses AI dibatasi dengan username/password dari `.env`.
 
 ## Menjalankan SiberBoard
 
-SiberBoard memakai ES modules, jadi jalankan lewat static server (bukan dibuka langsung sebagai file).
+SiberBoard sekarang memakai server Node lokal untuk:
 
-**Dengan Python:**
+- menyajikan file statis,
+- memanggil provider AI,
+- dan menangani login AI assistant.
 
-```bash
-python3 -m http.server 8000
-```
-
-Lalu buka <http://localhost:8000>.
-
-**Dengan Node.js:**
+### Setup
 
 ```bash
-npx serve .
+npm install
+cp .env.example .env
 ```
 
-Buka URL yang ditampilkan terminal. Alternatif lain: ekstensi **Live Server** di editor Anda.
+Isi `.env` sesuai kebutuhan:
 
-> Saat pertama dibuka, SiberBoard menampilkan **contoh flowchart** agar Anda langsung bisa bereksperimen.
+```env
+DEEPSEEK_API_KEY=...
+GROK_API_KEY=...
+
+AI_LOGIN_USERNAME=admin
+AI_LOGIN_PASSWORD=change_me
+```
+
+### Development
+
+```bash
+npm run dev
+```
+
+Lalu buka <http://127.0.0.1:8000>.
+
+> Setelah mengubah `.env`, restart `npm run dev` karena environment dibaca saat server startup.
+
+### Build production
+
+```bash
+npm run build
+```
+
+Folder hasil build ada di `dist/`.
 
 ## Cara Pakai
 
 ### Menambah node
-Klik tombol **➕** di kanan atas → panel **Add node** muncul → cari/klik node → node ditaruh di tengah layar. Grup **Flowchart** ada di paling atas.
+
+Klik tombol **➕** di kanan atas, cari node, lalu klik item yang diinginkan.
 
 ### Memindah & resize
+
 Drag badan node untuk memindah. Hover node lalu tarik handle pojok kanan bawah untuk mengubah ukuran.
 
 ### Menghubungkan node
-Tarik dari **port output** (kanan) node sumber, lepas di **port input** (kiri) node tujuan. Saat menarik, muncul preview garis.
 
-### Memberi label garis
-Klik garis konektor → pilih **Edit label** → isi teks (mis. `Yes` / `No`). Garis tanpa label tidak menampilkan chip.
+Hover node sampai titik konektor muncul, lalu tarik dari salah satu dari **4 port**: kiri, kanan, atas, atau bawah.
 
 ### Mengedit node
-Klik tombol **✎** pada toolbar hover, atau **double-click** node. Ubah label, deskripsi, atau icon. (Node flowchart tidak memakai icon — bentuknya yang jadi identitas.)
+
+Klik tombol **✎** pada toolbar hover node, atau double-click node.
 
 ### Menghapus
-- Node: tombol **🗑** pada toolbar hover node.
-- Garis: klik garis → **Hapus**.
-- Semua: tombol **Clear** di top bar (dengan konfirmasi).
 
-### Navigasi kanvas
-Drag area kosong untuk **pan**. Scroll untuk **zoom**. Tombol `+` / `−` / `⊡` untuk zoom in, zoom out, reset.
+- Node: tombol **🗑**
+- Konektor: klik garis lalu pilih **Hapus**
+- Semua: tombol **Clear**
 
-### Export gambar
-Klik **Export PNG ▾** → pilih:
-- **With background** — kanvas gelap + grid.
-- **Transparent** — hanya node + garis (PNG transparan, pas untuk ditempel ke slide/dokumen).
+### AI Assistant
+
+Klik **AI Assistant** di kiri bawah.
+
+- Jika belum login, panel login akan muncul.
+- Setelah login, Anda bisa meminta AI untuk:
+  - membuat flowchart,
+  - menghubungkan node,
+  - mengubah label/deskripsi/icon,
+  - menghapus node atau edge,
+  - merapikan layout.
+
+Contoh prompt:
+
+```text
+Buat flowchart pendaftaran siswa dari mulai, isi formulir, upload dokumen, validasi data, lalu bercabang ya/tidak.
+```
+
+```text
+Ganti label node "Analisa Maksud" menjadi "Analisis Intent" lalu rapikan layout.
+```
 
 ### Simpan & buka kembali
-- **Save** — menyimpan board ke file JSON (dialog native bila didukung browser, atau unduhan biasa).
-- **Load** — membuka kembali file JSON yang pernah disimpan; node, garis, label, dan posisi kamera dipulihkan.
 
-> Catatan: SiberBoard belum menyimpan otomatis. Gunakan **Save** sebelum menutup tab agar pekerjaan Anda tidak hilang.
+- **Save** — simpan board ke file JSON
+- **Load** — buka kembali file JSON yang pernah disimpan
 
 ## Teknologi
 
-Murni front-end: HTML + JavaScript ES modules + Tailwind CSS (CDN) + SVG. Tanpa bundler, tanpa backend, tanpa build step.
+- HTML statis + CSS inline di [index.html](index.html)
+- JavaScript ES modules di [src](src)
+- SVG untuk edge dan shape flowchart
+- Node.js server lokal di [server.mjs](server.mjs)
+- Tailwind CSS + esbuild saat build
 
-Ingin berkontribusi atau memahami isi kodenya? Lihat **[DEVELOPMENT.md](DEVELOPMENT.md)**.
+## Catatan
+
+- AI assistant memerlukan login dan API key provider.
+- Session login AI disimpan di memory server; restart server akan logout semua session.
+- Auto-layout saat ini masih dasar; hasilnya sudah lebih rapi, tapi belum setara engine graph layout penuh.
+
+Ingin memahami implementasinya lebih detail? Lihat **[DEVELOPMENT.md](DEVELOPMENT.md)**.
 
 ---
 
