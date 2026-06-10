@@ -278,116 +278,124 @@
     .icon-pick:hover { background: #2d2d2d; border-color: #4a90d9; }
 
     .assistant-fab {
-      box-shadow: 0 14px 28px rgba(0, 0, 0, 0.32);
-      background-image: linear-gradient(135deg, #67e8f9, #06b6d4 50%, #0891b2);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.24);
+      background: #22d3ee;
+      border: 1px solid rgba(8, 145, 178, 0.9);
     }
     .assistant-panel {
       display: flex;
       flex-direction: column;
-      width: min(340px, calc(100vw - 1.25rem));
-      height: min(640px, calc(100vh - 1.5rem));
-      max-height: calc(100vh - 1.5rem);
-      background:
-        radial-gradient(circle at top right, rgba(34, 211, 238, 0.14), transparent 34%),
-        linear-gradient(180deg, #1a1d20, #141618 62%, #101113);
-      border: 1px solid rgba(92, 104, 116, 0.35);
-      border-radius: 18px;
-      box-shadow: 0 20px 44px rgba(0, 0, 0, 0.42);
+      width: min(320px, calc(100vw - 1rem));
+      height: calc(100% - 1rem);
+      max-height: calc(100% - 1rem);
+      background: #17191c;
+      border: 1px solid #2d3339;
+      border-radius: 14px;
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
       overflow: hidden;
-      backdrop-filter: blur(14px);
     }
     .assistant-header {
-      background: linear-gradient(180deg, rgba(14, 15, 17, 0.55), rgba(14, 15, 17, 0.15));
+      background: #17191c;
     }
     .assistant-body {
       flex: 1 1 auto;
       min-height: 0;
+      background: #141618;
       overscroll-behavior: contain;
       scrollbar-width: thin;
-      scrollbar-color: #3d454d transparent;
+      scrollbar-color: #30363d transparent;
     }
     .assistant-body::-webkit-scrollbar {
-      width: 10px;
+      width: 8px;
     }
     .assistant-body::-webkit-scrollbar-track {
       background: transparent;
     }
     .assistant-body::-webkit-scrollbar-thumb {
-      background: #31383f;
+      background: #2e343a;
       border-radius: 9999px;
-      border: 2px solid transparent;
+      border: 1px solid transparent;
       background-clip: padding-box;
     }
     .assistant-msg-row {
       display: flex;
-      gap: 8px;
+      gap: 7px;
       align-items: flex-start;
     }
     .assistant-msg-row.user {
       justify-content: flex-end;
     }
     .assistant-avatar {
-      width: 24px;
-      height: 24px;
-      border-radius: 9999px;
+      width: 22px;
+      height: 22px;
+      border-radius: 7px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-size: 10px;
+      font-size: 9px;
+      font-weight: 700;
       flex: 0 0 auto;
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.06);
     }
     .assistant-avatar.assistant {
-      background: linear-gradient(135deg, #155e75, #0f766e);
-      color: #d9fbff;
+      background: #0f2f36;
+      color: #9be7f1;
+      border-color: rgba(34, 211, 238, 0.18);
     }
     .assistant-avatar.system {
-      background: linear-gradient(135deg, #374151, #1f2937);
+      background: #24282d;
       color: #e5e7eb;
     }
     .assistant-msg-wrap {
-      max-width: 88%;
+      max-width: 90%;
       min-width: 0;
     }
     .assistant-msg-meta {
-      margin-bottom: 4px;
+      margin-bottom: 3px;
       font-size: 9px;
       line-height: 1;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
-      color: #7b8794;
+      color: #7d8792;
     }
     .assistant-msg {
       white-space: pre-wrap;
       word-break: break-word;
-      border-radius: 14px;
-      padding: 9px 11px;
-      font-size: 12px;
-      line-height: 1.45;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 11px;
+      line-height: 1.5;
       user-select: text;
+      border: 1px solid transparent;
     }
     .assistant-msg.user {
-      background: linear-gradient(135deg, #f43f7c, #ea4b71 52%, #cd2f59);
-      color: white;
-      border-bottom-right-radius: 6px;
+      background: #1f6f7b;
+      color: #f7feff;
+      border-color: #278b99;
+      border-bottom-right-radius: 4px;
     }
     .assistant-msg.assistant {
-      background: linear-gradient(180deg, rgba(31, 36, 41, 0.96), rgba(24, 28, 32, 0.96));
+      background: #1c2024;
       color: #e5e7eb;
-      border: 1px solid rgba(71, 81, 90, 0.45);
-      border-bottom-left-radius: 6px;
+      border-color: #2d3339;
+      border-bottom-left-radius: 4px;
     }
     .assistant-msg.system {
-      background: linear-gradient(180deg, rgba(15, 38, 52, 0.95), rgba(17, 31, 41, 0.95));
+      background: #18242c;
       color: #cbd5e1;
-      border: 1px solid rgba(46, 86, 118, 0.75);
+      border-color: #28414f;
     }
     .assistant-compose {
       flex: 0 0 auto;
       position: sticky;
       bottom: 0;
       z-index: 2;
-      background: linear-gradient(180deg, rgba(19, 20, 22, 0.55), rgba(14, 15, 17, 0.96));
+      background: #17191c;
+    }
+    .assistant-compose-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
     }
     .assistant-compose textarea,
     .assistant-compose input,
@@ -396,29 +404,29 @@
     }
     .assistant-compose textarea {
       min-height: 0;
-      max-height: 84px;
+      max-height: 78px;
     }
     .image-chip {
-      border: 1px solid rgba(71, 81, 90, 0.45);
-      background: rgba(15, 18, 20, 0.7);
+      border: 1px solid #2d3339;
+      background: #14181b;
     }
     .image-preview {
-      width: 44px;
-      height: 44px;
+      width: 40px;
+      height: 40px;
       object-fit: cover;
-      border-radius: 10px;
-      border: 1px solid rgba(71, 81, 90, 0.45);
+      border-radius: 8px;
+      border: 1px solid #2d3339;
       background: #111111;
     }
     .assistant-loading {
       display: inline-flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
       min-height: 16px;
     }
     .assistant-loading span {
-      width: 7px;
-      height: 7px;
+      width: 6px;
+      height: 6px;
       border-radius: 9999px;
       background: #67e8f9;
       opacity: 0.35;
@@ -426,10 +434,58 @@
     }
     .assistant-loading span:nth-child(2) { animation-delay: 0.12s; }
     .assistant-loading span:nth-child(3) { animation-delay: 0.24s; }
-    .assistant-status-badge {
-      border: 1px solid rgba(71, 81, 90, 0.45);
-      background: rgba(15, 18, 20, 0.7);
-      color: #9ca3af;
+    .assistant-control {
+      width: 100%;
+      background: #121416;
+      border: 1px solid #2d3339;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 11px;
+      line-height: 1.35;
+      color: #e5e7eb;
+      transition: border-color 0.12s, background 0.12s;
+    }
+    .assistant-control:focus {
+      outline: none;
+      border-color: #22d3ee;
+      background: #111315;
+    }
+    .assistant-btn {
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      background: #22d3ee;
+      color: #062131;
+      border: 1px solid #0891b2;
+      transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+    }
+    .assistant-icon-btn {
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 auto;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .assistant-btn:hover {
+      background: #5ee8f7;
+    }
+    .assistant-muted-btn {
+      border-radius: 8px;
+      padding: 6px 9px;
+      font-size: 10px;
+      color: #d1d5db;
+      background: #1b1f23;
+      border: 1px solid #2d3339;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    .assistant-muted-btn:hover {
+      background: #23282d;
+      border-color: #38414a;
     }
     .auth-btn:disabled {
       opacity: 0.45;
@@ -437,14 +493,11 @@
       filter: grayscale(0.2);
     }
     .login-panel {
-      width: min(320px, calc(100vw - 1.25rem));
-      background:
-        radial-gradient(circle at top right, rgba(34, 211, 238, 0.14), transparent 34%),
-        linear-gradient(180deg, #1a1d20, #141618 62%, #101113);
-      border: 1px solid rgba(92, 104, 116, 0.35);
-      border-radius: 18px;
-      box-shadow: 0 20px 44px rgba(0, 0, 0, 0.42);
-      backdrop-filter: blur(14px);
+      width: min(300px, calc(100vw - 1rem));
+      background: #17191c;
+      border: 1px solid #2d3339;
+      border-radius: 14px;
+      box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
     }
     @keyframes assistantPulse {
       0%, 80%, 100% { transform: translateY(0); opacity: 0.3; }
@@ -554,7 +607,7 @@
     </div>
 
     <button id="aiAssistantBtn"
-      class="assistant-fab ui-chrome absolute left-4 bottom-4 z-30 px-3.5 h-10 rounded-full bg-cyan-500 hover:bg-cyan-400 text-[#062131] text-xs font-semibold flex items-center gap-2">
+      class="assistant-fab ui-chrome absolute left-4 bottom-4 z-30 px-3 h-9 rounded-full text-[#062131] text-[11px] font-semibold flex items-center gap-1.5">
       <span>AI</span>
       <span>Assistant</span>
     </button>
@@ -573,18 +626,18 @@
         <label>
           <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Username</span>
           <input id="aiLoginUsername" type="text"
-            class="w-full bg-[#111111] border border-[#353535] rounded-md px-3 py-2 text-xs focus:outline-none focus:border-cyan-500" />
+            class="assistant-control" />
         </label>
         <label>
           <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Password</span>
           <input id="aiLoginPassword" type="password"
-            class="w-full bg-[#111111] border border-[#353535] rounded-md px-3 py-2 text-xs focus:outline-none focus:border-cyan-500" />
+            class="assistant-control" />
         </label>
         <div class="flex items-center justify-between gap-2">
           <div id="aiLoginStatus" class="text-[10px] text-gray-500">Masuk untuk memakai AI assistant.</div>
           <button id="aiLoginSubmitBtn"
             type="button"
-            class="auth-btn px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-[#062131] text-xs font-semibold">
+            class="auth-btn assistant-btn">
             Login
           </button>
         </div>
@@ -594,22 +647,21 @@
     <section id="aiAssistantPanel"
       class="assistant-panel ui-chrome absolute left-4 top-4 z-40 hidden"
       aria-hidden="true">
-      <div id="aiAssistantHeader" class="assistant-header px-3 h-11 border-b border-[#2d2d2d] flex items-center justify-between shrink-0">
+      <div id="aiAssistantHeader" class="assistant-header px-3 h-10 border-b border-[#2d3339] flex items-center justify-between shrink-0">
         <div class="pointer-events-none">
           <div class="text-xs font-semibold">AI Assistant</div>
-          <div class="text-[10px] text-gray-500">Generate node dan edge langsung ke canvas</div>
         </div>
         <div class="flex items-center gap-1.5">
-          <button id="aiLogoutBtn" class="px-2 py-1 rounded-md hover:bg-[#232323] text-[10px] text-gray-300">Logout</button>
+          <button id="aiLogoutBtn" class="assistant-muted-btn">Logout</button>
           <button id="closeAiAssistantBtn" class="w-7 h-7 rounded-md hover:bg-[#232323] text-gray-400 text-sm">✕</button>
         </div>
       </div>
 
-      <div class="px-3 py-2 border-b border-[#2d2d2d] grid grid-cols-2 gap-2 shrink-0">
+      <div class="px-3 py-2 border-b border-[#2d3339] grid grid-cols-2 gap-2 shrink-0">
         <label class="col-span-1">
           <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Provider</span>
           <select id="aiProvider"
-            class="w-full bg-[#111111] border border-[#353535] rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500">
+            class="assistant-control">
             <option value="deepseek">DeepSeek</option>
             <option value="grok">Grok</option>
           </select>
@@ -617,23 +669,22 @@
         <label class="col-span-1">
           <span class="block text-[10px] uppercase tracking-wider text-gray-500 mb-1">Model</span>
           <input id="aiModel" type="text" value="deepseek-chat"
-            class="w-full bg-[#111111] border border-[#353535] rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500" />
+            class="assistant-control" />
         </label>
       </div>
 
-      <div id="aiImageRow" class="px-3 py-2 border-b border-[#2d2d2d] shrink-0 hidden">
+      <div id="aiImageRow" class="px-3 py-2 border-b border-[#2d3339] shrink-0 hidden">
         <div class="flex items-center justify-between gap-2">
           <div class="min-w-0">
             <div class="text-[10px] uppercase tracking-wider text-gray-500">Gambar</div>
-            <div class="text-[10px] text-gray-500">Khusus Grok. Hanya gambar terakhir yang dikirim ke model.</div>
           </div>
           <div class="flex items-center gap-1.5">
             <input id="aiImageInput" type="file" accept="image/png,image/jpeg" class="hidden" />
-            <button id="aiImageSelectBtn" type="button" class="px-2 py-1 rounded-md bg-[#202428] hover:bg-[#272d33] text-[10px] text-gray-200">Upload</button>
-            <button id="aiImageClearBtn" type="button" class="px-2 py-1 rounded-md bg-[#202428] hover:bg-[#272d33] text-[10px] text-gray-200 hidden">Hapus</button>
+            <button id="aiImageSelectBtn" type="button" class="assistant-muted-btn">Upload</button>
+            <button id="aiImageClearBtn" type="button" class="assistant-muted-btn hidden">Hapus</button>
           </div>
         </div>
-        <div id="aiImagePreviewWrap" class="image-chip mt-2 rounded-xl px-2 py-2 hidden">
+        <div id="aiImagePreviewWrap" class="image-chip mt-2 rounded-lg px-2 py-2 hidden">
           <div class="flex items-center gap-2">
             <img id="aiImagePreview" class="image-preview" alt="Preview image context" />
             <div class="min-w-0">
@@ -644,17 +695,18 @@
         </div>
       </div>
 
-      <div id="aiMessages" class="assistant-body flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2.5"></div>
+      <div id="aiMessages" class="assistant-body flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2"></div>
 
-      <div class="assistant-compose p-3 border-t border-[#2d2d2d] shrink-0">
-        <textarea id="aiPrompt" rows="2"
-          class="w-full resize-none bg-[#111111] border border-[#353535] rounded-xl px-3 py-2.5 text-xs focus:outline-none focus:border-cyan-500"
-          placeholder="Tulis instruksi singkat..."></textarea>
-        <div class="mt-2.5 flex items-center justify-between gap-2">
-          <div id="aiStatus" class="assistant-status-badge text-[10px] rounded-full px-2 py-1">Server endpoint: <code>/api/ai/chat</code></div>
+      <div class="assistant-compose p-3 border-t border-[#2d3339] shrink-0">
+        <div class="assistant-compose-row">
+          <textarea id="aiPrompt" rows="2"
+            class="assistant-control w-full resize-none"
+            placeholder="Tulis instruksi singkat..."></textarea>
           <button id="sendAiPromptBtn"
-            class="px-3 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-[#062131] text-xs font-semibold">
-            Kirim
+            class="assistant-btn assistant-icon-btn"
+            type="button"
+            aria-label="Kirim prompt">
+            <span aria-hidden="true">➤</span>
           </button>
         </div>
       </div>
@@ -663,6 +715,6 @@
     <input id="loadUiInput" type="file" accept=".json,application/json" class="hidden" />
   </main>
 
-  <script type="module" src="src/main.js?v=17"></script>
+  <script type="module" src="src/main.js?v=19"></script>
 </body>
 </html>
