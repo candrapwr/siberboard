@@ -903,6 +903,7 @@ function applyAiOperations(operations) {
     ? autoLayoutGraph(requestedLayoutOrientation || detectPreferredLayoutOrientation())
     : false;
   renderEdges();
+  persistLocalWorkflow();
   return {
     createdNodes,
     createdEdges,
@@ -1327,6 +1328,11 @@ function clearWorkflow() {
 function initPersistence() {
   document.getElementById('wfName').addEventListener('input', persistLocalWorkflow);
   document.addEventListener('workflow:changed', persistLocalWorkflow);
+  window.addEventListener('pagehide', persistLocalWorkflow);
+  window.addEventListener('beforeunload', persistLocalWorkflow);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') persistLocalWorkflow();
+  });
   document.getElementById('saveUiBtn').addEventListener('click', saveWorkflow);
   document.getElementById('loadUiBtn').addEventListener('click', loadWorkflow);
   document.getElementById('clearBtn').addEventListener('click', clearWorkflow);
