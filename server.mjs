@@ -129,6 +129,7 @@ The response schema is:
       "type": "update_node",
       "nodeId": 4,
       "matchLabel": "Analisa Maksud",
+      "nodeType": "llm",
       "label": "Analisis Intent",
       "sub": "AI membaca isi chat",
       "icon": "🧠",
@@ -182,6 +183,7 @@ Rules:
 - Icons must be emoji or very short emoji-like symbols, not words or long text.
 - Prefer a single emoji. If a node should not display an icon, use an empty string.
 - For existing nodes on the canvas, prefer using nodeId from the current canvas state.
+- To replace a node with another node kind while keeping its connections, use update_node with nodeType instead of delete_node + create_node.
 - You may also include matchLabel as a fallback when updating or deleting existing nodes.
 - For existing edges on the canvas, prefer fromNodeId/toNodeId from the current canvas state.
 - For connecting existing nodes, create_edge may use fromNodeId/toNodeId or fromMatchLabel/toMatchLabel.
@@ -366,13 +368,17 @@ function validateAiResponse(payload) {
 
     if (op.type === 'update_node') {
       if (!Number.isFinite(op.nodeId) && !(typeof op.matchLabel === 'string' && op.matchLabel.trim())) continue;
+      const nodeType = typeof op.nodeType === 'string'
+        ? (NODE_TYPES[op.nodeType] ? op.nodeType : inferFallbackBlankNodeType(op))
+        : undefined;
       validOps.push({
         type: 'update_node',
         nodeId: Number.isFinite(op.nodeId) ? op.nodeId : undefined,
         matchLabel: typeof op.matchLabel === 'string' ? op.matchLabel.trim() : undefined,
+        nodeType,
         label: typeof op.label === 'string' ? op.label : undefined,
         sub: typeof op.sub === 'string' ? op.sub : undefined,
-        icon: normalizeIcon(op.icon, Number.isFinite(op.nodeId) ? undefined : 'blankMiddle'),
+        icon: normalizeIcon(op.icon, nodeType || (Number.isFinite(op.nodeId) ? undefined : 'blankMiddle')),
         x: Number.isFinite(op.x) ? op.x : undefined,
         y: Number.isFinite(op.y) ? op.y : undefined,
         width: Number.isFinite(op.width) ? op.width : undefined,

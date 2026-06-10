@@ -125,6 +125,7 @@ function nodeEl(id) {
 
 function refreshNode(id) {
   const node = getNode(id);
+  if (!node) return;
   const info = NODE_TYPES[node.type] || NODE_TYPES.set;
   const el = nodeEl(id);
   if (!el) return;
@@ -134,6 +135,14 @@ function refreshNode(id) {
   el.querySelector('.node-sub').textContent = node.sub ?? info.sub;
   const iconEl = el.querySelector('.node-icon');
   if (iconEl) iconEl.textContent = node.icon ?? info.icon;
+}
+
+function rerenderNode(id) {
+  const node = getNode(id);
+  const el = nodeEl(id);
+  if (!node || !el) return;
+  const nextEl = createNodeElement(node);
+  el.replaceWith(nextEl);
 }
 
 function spawnNode(type, x, y) {
@@ -596,15 +605,35 @@ function setAiBusy(busy) {
 
 function normalizeNodeLabel(node) {
   const info = NODE_TYPES[node.type] || NODE_TYPES.set;
-  return String(node.label ?? info.label ?? '').trim().toLowerCase();
+  return String(node.label ?? info.label ?? '')
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
 }
 
 function findNodeIdForAiTarget(target) {
   if (Number.isFinite(target?.nodeId) && getNode(target.nodeId)) return target.nodeId;
   if (typeof target?.matchLabel === 'string' && target.matchLabel.trim()) {
-    const wanted = target.matchLabel.trim().toLowerCase();
-    const found = getState().nodes.find(node => normalizeNodeLabel(node) === wanted);
-    if (found) return found.id;
+    const wanted = target.matchLabel
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim()
+      .replace(/\s+/g, ' ');
+    const nodes = getState().nodes;
+
+    const exact = nodes.find(node => normalizeNodeLabel(node) === wanted);
+    if (exact) return exact.id;
+
+    const compactWanted = wanted.replace(/\s+/g, '');
+    const compactMatches = nodes.filter(node => normalizeNodeLabel(node).replace(/\s+/g, '') === compactWanted);
+    if (compactMatches.length === 1) return compactMatches[0].id;
+
+    const partialMatches = nodes.filter(node => {
+      const label = normalizeNodeLabel(node);
+      return label.includes(wanted) || wanted.includes(label);
+    });
+    if (partialMatches.length === 1) return partialMatches[0].id;
   }
   return null;
 }
@@ -799,6 +828,8 @@ function applyAiOperations(operations, options = {}) {
   let deletedNodes = 0;
   let updatedEdges = 0;
   let deletedEdges = 0;
+  let missedNodeTargets = 0;
+  let missedEdgeTargets = 0;
   let autoLayoutRequested = false;
   let requestedLayoutOrientation = null;
   let hasExplicitPositions = false;
@@ -849,9 +880,13 @@ function applyAiOperations(operations, options = {}) {
   for (const op of operations) {
     if (op.type === 'update_node') {
       const nodeId = findNodeIdForAiTarget(op);
-      if (!nodeId) continue;
+      if (!nodeId) {
+        missedNodeTargets += 1;
+        continue;
+      }
       if (Number.isFinite(op.x) || Number.isFinite(op.y)) hasExplicitPositions = true;
       const patch = {};
+      if (typeof op.nodeType === 'string' && NODE_TYPES[op.nodeType]) patch.type = op.nodeType;
       if (typeof op.label === 'string') patch.label = op.label;
       if (typeof op.sub === 'string') patch.sub = op.sub;
       if (typeof op.icon === 'string') patch.icon = op.icon;
@@ -860,20 +895,25 @@ function applyAiOperations(operations, options = {}) {
       if (Number.isFinite(op.width)) patch.width = op.width;
       if (Number.isFinite(op.height)) patch.height = op.height;
       updateNode(nodeId, patch);
-      const el = nodeEl(nodeId);
       const node = getNode(nodeId);
-      if (el && node) {
+      const el = nodeEl(nodeId);
+      if (el && node && !patch.type) {
         el.style.left = node.x + 'px';
         el.style.top = node.y + 'px';
       }
-      refreshNode(nodeId);
+      if (patch.type) rerenderNode(nodeId);
+      else refreshNode(nodeId);
+      if (node) renderEdges();
       updatedNodes += 1;
       continue;
     }
 
     if (op.type === 'delete_node') {
       const nodeId = findNodeIdForAiTarget(op);
-      if (!nodeId) continue;
+      if (!nodeId) {
+        missedNodeTargets += 1;
+        continue;
+      }
       removeNode(nodeId);
       nodeEl(nodeId)?.remove();
       if (editingId === nodeId) closeEditor();
@@ -883,9 +923,15 @@ function applyAiOperations(operations, options = {}) {
 
     if (op.type === 'update_edge') {
       const target = findEdgeTargetForAi(op);
-      if (!target) continue;
+      if (!target) {
+        missedEdgeTargets += 1;
+        continue;
+      }
       const edge = getEdge(target.fromId, target.toId);
-      if (!edge) continue;
+      if (!edge) {
+        missedEdgeTargets += 1;
+        continue;
+      }
       updateEdge(target.fromId, target.toId, {
         fromSide: normalizePortSide(op.fromSide, edge.fromSide ?? 'right'),
         toSide: normalizePortSide(op.toSide, edge.toSide ?? 'left'),
@@ -897,8 +943,14 @@ function applyAiOperations(operations, options = {}) {
 
     if (op.type === 'delete_edge') {
       const target = findEdgeTargetForAi(op);
-      if (!target) continue;
-      if (!getEdge(target.fromId, target.toId)) continue;
+      if (!target) {
+        missedEdgeTargets += 1;
+        continue;
+      }
+      if (!getEdge(target.fromId, target.toId)) {
+        missedEdgeTargets += 1;
+        continue;
+      }
       removeEdge(target.fromId, target.toId);
       deletedEdges += 1;
       continue;
@@ -927,6 +979,8 @@ function applyAiOperations(operations, options = {}) {
     deletedNodes,
     updatedEdges,
     deletedEdges,
+    missedNodeTargets,
+    missedEdgeTargets,
     layoutApplied,
     layoutOrientation: requestedLayoutOrientation || detectPreferredLayoutOrientation(),
   };
@@ -1595,15 +1649,24 @@ function initAiAssistant() {
         ].join(' · ');
         setAiStatus(summary);
         setSaveMessage(summary);
+        if (result.missedNodeTargets || result.missedEdgeTargets) {
+          const misses = [
+            result.missedNodeTargets ? `target node tidak ketemu: ${result.missedNodeTargets}` : '',
+            result.missedEdgeTargets ? `target edge tidak ketemu: ${result.missedEdgeTargets}` : '',
+          ].filter(Boolean).join(' · ');
+          appendAiMessage('system', `Sebagian operasi AI tidak diterapkan: ${misses}. Coba gunakan label node yang lebih spesifik atau minta AI menyebut node yang ada persis di canvas.`);
+        }
       } else {
         setAiStatus('Respons AI diterima');
         setSaveMessage('AI response received');
       }
 
-      const usageText = payload.model
-        ? `Provider ${payload.provider} · model ${payload.model}`
-        : 'Respons AI diterima';
-      setAiStatus(usageText);
+      if (!operations.length) {
+        const usageText = payload.model
+          ? `Provider ${payload.provider} · model ${payload.model}`
+          : 'Respons AI diterima';
+        setAiStatus(usageText);
+      }
       promptInput.value = '';
     } catch (error) {
       const message = error instanceof Error ? error.message : 'AI request failed';
