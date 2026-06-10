@@ -222,6 +222,20 @@
     .edge-group:hover .edge-line { stroke: #ef4444 !important; stroke-width: 3; }
     .edge-label { pointer-events: all; cursor: pointer; }
     .edge-group:hover .edge-label rect { stroke: #ef4444; }
+    .edge-endpoint {
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.12s, fill 0.12s, stroke 0.12s, r 0.12s;
+      cursor: crosshair;
+    }
+    .edge-group:hover .edge-endpoint {
+      pointer-events: all;
+      opacity: 1;
+    }
+    .edge-endpoint:hover {
+      fill: #4a90d9;
+      stroke: #9fc5ff;
+    }
 
     .edge-menu {
       min-width: 120px;
@@ -383,6 +397,18 @@
     .assistant-compose textarea {
       min-height: 0;
       max-height: 84px;
+    }
+    .image-chip {
+      border: 1px solid rgba(71, 81, 90, 0.45);
+      background: rgba(15, 18, 20, 0.7);
+    }
+    .image-preview {
+      width: 44px;
+      height: 44px;
+      object-fit: cover;
+      border-radius: 10px;
+      border: 1px solid rgba(71, 81, 90, 0.45);
+      background: #111111;
     }
     .assistant-loading {
       display: inline-flex;
@@ -593,6 +619,29 @@
           <input id="aiModel" type="text" value="deepseek-chat"
             class="w-full bg-[#111111] border border-[#353535] rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:border-cyan-500" />
         </label>
+      </div>
+
+      <div id="aiImageRow" class="px-3 py-2 border-b border-[#2d2d2d] shrink-0 hidden">
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="text-[10px] uppercase tracking-wider text-gray-500">Gambar</div>
+            <div class="text-[10px] text-gray-500">Khusus Grok. Hanya gambar terakhir yang dikirim ke model.</div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <input id="aiImageInput" type="file" accept="image/png,image/jpeg" class="hidden" />
+            <button id="aiImageSelectBtn" type="button" class="px-2 py-1 rounded-md bg-[#202428] hover:bg-[#272d33] text-[10px] text-gray-200">Upload</button>
+            <button id="aiImageClearBtn" type="button" class="px-2 py-1 rounded-md bg-[#202428] hover:bg-[#272d33] text-[10px] text-gray-200 hidden">Hapus</button>
+          </div>
+        </div>
+        <div id="aiImagePreviewWrap" class="image-chip mt-2 rounded-xl px-2 py-2 hidden">
+          <div class="flex items-center gap-2">
+            <img id="aiImagePreview" class="image-preview" alt="Preview image context" />
+            <div class="min-w-0">
+              <div id="aiImageName" class="text-[10px] text-gray-200 truncate"></div>
+              <div id="aiImageHint" class="text-[10px] text-gray-500">Gambar ini akan tetap dipakai sampai diganti atau dihapus.</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div id="aiMessages" class="assistant-body flex-1 min-h-0 overflow-y-auto px-3 py-3 flex flex-col gap-2.5"></div>

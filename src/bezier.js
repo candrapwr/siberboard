@@ -110,6 +110,8 @@ export function renderEdges() {
     html += `<g class="edge-group" data-from="${edge.from}" data-to="${edge.to}">`;
     html += `<path d="${d}" class="edge-hit" fill="none" stroke="transparent" stroke-width="16" />`;
     html += `<path d="${d}" class="edge-line" fill="none" stroke="#7a7a7a" stroke-width="2" />`;
+    html += `<circle class="edge-endpoint" data-endpoint="from" data-side="${fromSide}" cx="${a.x}" cy="${a.y}" r="5" fill="#1a1a1a" stroke="#7a8699" stroke-width="2" />`;
+    html += `<circle class="edge-endpoint" data-endpoint="to" data-side="${toSide}" cx="${b.x}" cy="${b.y}" r="5" fill="#1a1a1a" stroke="#7a8699" stroke-width="2" />`;
     if (rawLabel) {
       const labelPoint = edgeLabelPoint(a.x, a.y, b.x, b.y, fromSide, toSide);
       const displayLabel = truncateLabel(rawLabel, 22);
