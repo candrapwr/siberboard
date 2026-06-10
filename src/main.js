@@ -76,22 +76,25 @@ function createNodeElement(node) {
 
   // Flowchart nodes carry their meaning through the shape, so they drop the emoji
   // icon and center the label; everything else keeps the icon + left-aligned text.
-  let bodyClass, iconHtml, textClass, subClass;
+  let bodyClass, iconHtml, textClass, titleClass, subClass;
   if (noIcon) {
     bodyClass = `${shape ? 'node-body ' : ''}flex items-center justify-center text-center w-full h-full px-4 py-3 pointer-events-none`;
     iconHtml = '';
     textClass = 'min-w-0';
-    subClass = 'node-sub mt-0.5 text-[11px] leading-4 text-gray-400 line-clamp-2';
+    titleClass = 'node-title text-[12px] font-medium leading-[1.3] text-gray-100 line-clamp-2';
+    subClass = 'node-sub mt-0.5 text-[10px] leading-[1.35] text-gray-400 line-clamp-2';
   } else if (shape) {
     bodyClass = 'node-body flex items-center gap-2.5 w-full h-full px-4 py-3 pointer-events-none';
     iconHtml = `<div class="icon-box node-icon" style="background:${color}22;">${icon}</div>`;
     textClass = 'min-w-0 flex-1';
-    subClass = 'node-sub mt-0.5 text-[11px] leading-4 text-gray-400 line-clamp-2';
+    titleClass = 'node-title text-[13px] font-medium leading-[1.3] text-gray-100 line-clamp-2';
+    subClass = 'node-sub mt-0.5 text-[10px] leading-[1.35] text-gray-400 line-clamp-2';
   } else {
     bodyClass = 'node-body flex items-start gap-3 w-full h-full px-3 py-3 pr-5 pointer-events-none';
     iconHtml = `<div class="icon-box node-icon mt-0.5" style="background:${color}22;">${icon}</div>`;
     textClass = 'min-w-0 flex-1 self-center';
-    subClass = 'node-sub mt-1 text-[11px] leading-4 text-gray-400 line-clamp-2';
+    titleClass = 'node-title text-[13px] font-medium leading-[1.3] text-gray-100 line-clamp-2';
+    subClass = 'node-sub mt-1 text-[10px] leading-[1.35] text-gray-400 line-clamp-2';
   }
 
   div.innerHTML = `
@@ -103,7 +106,7 @@ function createNodeElement(node) {
     <div class="${bodyClass}">
       ${iconHtml}
       <div class="${textClass}">
-        <div class="node-title text-sm font-medium text-gray-100 line-clamp-2">${label}</div>
+        <div class="${titleClass}">${label}</div>
         <div class="${subClass}">${sub}</div>
       </div>
     </div>
@@ -580,7 +583,10 @@ function setAiBusy(busy) {
   const prompt = document.getElementById('aiPrompt');
   if (sendBtn) {
     sendBtn.disabled = busy;
-    sendBtn.textContent = busy ? 'Memproses...' : 'Kirim';
+    sendBtn.innerHTML = busy
+      ? '<span aria-hidden="true">⋯</span>'
+      : '<span aria-hidden="true">➤</span>';
+    sendBtn.setAttribute('aria-label', busy ? 'Memproses prompt' : 'Kirim prompt');
     sendBtn.classList.toggle('opacity-60', busy);
   }
   if (prompt) prompt.disabled = busy;
@@ -737,8 +743,10 @@ function autoLayoutGraph(orientation = detectPreferredLayoutOrientation()) {
 
   const maxWidth = Math.max(...nodes.map(node => node.width));
   const maxHeight = Math.max(...nodes.map(node => node.height));
-  const primaryGap = orientation === 'vertical' ? maxHeight + 130 : maxWidth + 170;
-  const rowGap = 150;
+  const primaryGap = orientation === 'vertical'
+    ? maxHeight + 52
+    : maxWidth + 74;
+  const rowGap = orientation === 'vertical' ? 48 : 42;
   const startX = 120;
   const startY = 100;
   const nextPositions = new Map();
@@ -750,7 +758,7 @@ function autoLayoutGraph(orientation = detectPreferredLayoutOrientation()) {
       const size = orientation === 'vertical' ? node.width : node.height;
       return sum + size + (idx > 0 ? rowGap : 0);
     }, 0);
-    let cursor = (orientation === 'vertical' ? startX : startY) - totalSpan / 2 + 280;
+    let cursor = (orientation === 'vertical' ? startX : startY) - totalSpan / 2 + 220;
 
     for (const id of ids) {
       const node = getNode(id);
@@ -782,7 +790,8 @@ function autoLayoutGraph(orientation = detectPreferredLayoutOrientation()) {
   return true;
 }
 
-function applyAiOperations(operations) {
+function applyAiOperations(operations, options = {}) {
+  const preserveModelLayout = Boolean(options.preserveModelLayout);
   const refMap = new Map();
   let createdNodes = 0;
   let createdEdges = 0;
@@ -792,9 +801,11 @@ function applyAiOperations(operations) {
   let deletedEdges = 0;
   let autoLayoutRequested = false;
   let requestedLayoutOrientation = null;
+  let hasExplicitPositions = false;
 
   for (const op of operations) {
     if (op.type !== 'create_node' || !NODE_TYPES[op.nodeType]) continue;
+    if (Number.isFinite(op.x) || Number.isFinite(op.y)) hasExplicitPositions = true;
     const node = spawnNode(op.nodeType, op.x, op.y);
     const patch = {};
     if (typeof op.label === 'string') patch.label = op.label;
@@ -839,6 +850,7 @@ function applyAiOperations(operations) {
     if (op.type === 'update_node') {
       const nodeId = findNodeIdForAiTarget(op);
       if (!nodeId) continue;
+      if (Number.isFinite(op.x) || Number.isFinite(op.y)) hasExplicitPositions = true;
       const patch = {};
       if (typeof op.label === 'string') patch.label = op.label;
       if (typeof op.sub === 'string') patch.sub = op.sub;
@@ -899,7 +911,11 @@ function applyAiOperations(operations) {
   }
 
   const hasStructuralChanges = createdNodes || createdEdges || deletedNodes || deletedEdges;
-  const layoutApplied = (autoLayoutRequested || hasStructuralChanges)
+  const shouldAutoLayout = autoLayoutRequested || (
+    hasStructuralChanges &&
+    !(preserveModelLayout && hasExplicitPositions)
+  );
+  const layoutApplied = shouldAutoLayout
     ? autoLayoutGraph(requestedLayoutOrientation || detectPreferredLayoutOrientation())
     : false;
   renderEdges();
@@ -1565,7 +1581,9 @@ function initAiAssistant() {
 
       const operations = Array.isArray(payload.operations) ? payload.operations : [];
       if (operations.length) {
-        const result = applyAiOperations(operations);
+        const result = applyAiOperations(operations, {
+          preserveModelLayout: providerSelect.value === 'grok' && Boolean(aiImageContext?.dataUrl),
+        });
         const summary = [
           `buat node ${result.createdNodes}`,
           `buat edge ${result.createdEdges}`,

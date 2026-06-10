@@ -66,6 +66,30 @@ const nodeTypeSummary = Object.entries(NODE_TYPES)
 const PORT_SIDES = new Set(['left', 'right', 'top', 'bottom']);
 const LAYOUT_ORIENTATIONS = new Set(['horizontal', 'vertical']);
 
+function inferFallbackBlankNodeType(op) {
+  const text = `${typeof op?.label === 'string' ? op.label : ''} ${typeof op?.sub === 'string' ? op.sub : ''}`
+    .trim()
+    .toLowerCase();
+
+  if (/(^|\b)(start|input|source|entry|incoming|visitor|user request|request masuk)(\b|$)/.test(text)) {
+    return 'blankInput';
+  }
+  if (/(^|\b)(end|output|result|finish|done|selesai|tujuan|response|html document)(\b|$)/.test(text)) {
+    return 'blankEnd';
+  }
+  return 'blankMiddle';
+}
+
+function normalizeIcon(value, nodeType) {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const compact = Array.from(trimmed).slice(0, 3).join('');
+  const hasEmojiLike = /\p{Extended_Pictographic}|\p{Emoji_Presentation}|[#*0-9]\uFE0F?\u20E3/u.test(compact);
+  if (!hasEmojiLike) return NODE_TYPES[nodeType]?.icon;
+  return compact;
+}
+
 const systemPrompt = `You are the AI assistant for SiberBoard, a browser workflow and flowchart builder.
 You help users in two ways:
 1. Explain how to create or edit a workflow using SiberBoard's node system.
@@ -148,8 +172,15 @@ Rules:
 - Use only valid nodeType values from the list below.
 - For flowcharts, prefer top-to-bottom layouts unless the user explicitly asks for horizontal.
 - For general workflow graphs, horizontal or vertical is allowed, but keep the structure readable.
+- If the user provides an image or asks to make a diagram similar to a reference image, prioritize matching the visual composition and relative placement from the image.
+- For image-based reproduction, place nodes explicitly with x/y coordinates that preserve left/right/up/down relationships from the reference.
+- For image-based reproduction, do NOT add auto_layout unless the user explicitly asks to tidy, align, or relayout the result.
 - For flowchart nodes, icon can be empty.
 - Never invent node types.
+- If a desired node does not exist in the available list, use a blank fallback node instead: blankInput, blankMiddle, or blankEnd.
+- When using a blank fallback node, choose the icon yourself so it matches the referenced concept as closely as possible.
+- Icons must be emoji or very short emoji-like symbols, not words or long text.
+- Prefer a single emoji. If a node should not display an icon, use an empty string.
 - For existing nodes on the canvas, prefer using nodeId from the current canvas state.
 - You may also include matchLabel as a fallback when updating or deleting existing nodes.
 - For existing edges on the canvas, prefer fromNodeId/toNodeId from the current canvas state.
@@ -294,14 +325,16 @@ function validateAiResponse(payload) {
     if (!op || typeof op !== 'object' || typeof op.type !== 'string') continue;
 
     if (op.type === 'create_node') {
-      if (!NODE_TYPES[op.nodeType]) continue;
+      const nodeType = NODE_TYPES[op.nodeType]
+        ? op.nodeType
+        : inferFallbackBlankNodeType(op);
       validOps.push({
         type: 'create_node',
         ref: typeof op.ref === 'string' && op.ref.trim() ? op.ref.trim() : `node_${validOps.length + 1}`,
-        nodeType: op.nodeType,
+        nodeType,
         label: typeof op.label === 'string' ? op.label : undefined,
         sub: typeof op.sub === 'string' ? op.sub : undefined,
-        icon: typeof op.icon === 'string' ? op.icon : undefined,
+        icon: normalizeIcon(op.icon, nodeType),
         x: Number.isFinite(op.x) ? op.x : 0,
         y: Number.isFinite(op.y) ? op.y : 0,
         width: Number.isFinite(op.width) ? op.width : undefined,
@@ -339,7 +372,7 @@ function validateAiResponse(payload) {
         matchLabel: typeof op.matchLabel === 'string' ? op.matchLabel.trim() : undefined,
         label: typeof op.label === 'string' ? op.label : undefined,
         sub: typeof op.sub === 'string' ? op.sub : undefined,
-        icon: typeof op.icon === 'string' ? op.icon : undefined,
+        icon: normalizeIcon(op.icon, Number.isFinite(op.nodeId) ? undefined : 'blankMiddle'),
         x: Number.isFinite(op.x) ? op.x : undefined,
         y: Number.isFinite(op.y) ? op.y : undefined,
         width: Number.isFinite(op.width) ? op.width : undefined,
@@ -483,12 +516,21 @@ async function callProvider({ providerName, model, messages, imageDataUrl }) {
   };
 }
 
-function buildUserPrompt({ prompt, workflowName, state }) {
-  return [
+function buildUserPrompt({ prompt, workflowName, state, imageDataUrl }) {
+  const sections = [
     `Workflow name: ${workflowName || 'Untitled board'}`,
     `Current canvas state JSON: ${JSON.stringify(state || { nodes: [], edges: [] })}`,
-    `User request: ${prompt}`,
-  ].join('\n\n');
+  ];
+
+  if (imageDataUrl) {
+    sections.push(
+      'Reference image is attached. Recreate the diagram structure and relative layout from the image as closely as possible using explicit x/y positions. Do not collapse everything into a single vertical stack. Do not add auto_layout unless the user explicitly asks for it.'
+    );
+  }
+
+  sections.push(`User request: ${prompt}`);
+
+  return sections.join('\n\n');
 }
 
 async function handleAiChat(req, res) {
