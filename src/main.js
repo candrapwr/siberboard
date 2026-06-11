@@ -106,6 +106,36 @@ const SHAPE_CONTENT_BOX = {
   button: { left: 0.16, right: 0.16, top: 0.22, bottom: 0.22 },
 };
 
+const SAMPLE_WORKFLOW = {
+  workflowName: 'Untitled board',
+  view: {
+    panX: 44.33333333333337,
+    panY: -12.833333333333314,
+    zoom: 1,
+  },
+  state: {
+    nodes: [
+      { id: 1, type: 'fcStart', x: 12, y: 280, width: 112, height: 63, label: 'Mulai', sub: 'File masuk', icon: null },
+      { id: 2, type: 'fcInputOutput', x: 161.16666666666669, y: 276.16666666666674, width: 178, height: 71, label: 'Terima Dokumen', sub: 'Cek berkas', icon: null },
+      { id: 3, type: 'fcProcess', x: 396, y: 279.8333333333333, width: 126, height: 62, label: 'Validasi', sub: 'Periksa isi', icon: null },
+      { id: 4, type: 'fcDecision', x: 597.8333333333334, y: 255.50000000000006, width: 190, height: 110, label: 'Lengkap?', sub: 'Sesuai syarat', icon: null },
+      { id: 5, type: 'fcDocument', x: 589, y: 430, width: 210, height: 72, label: 'Minta Revisi', sub: 'Kirim catatan', icon: null },
+      { id: 6, type: 'fcDatabase', x: 877.6666666666666, y: 277.3333333333333, width: 210, height: 72, label: 'Arsipkan', sub: 'Simpan data', icon: null },
+      { id: 7, type: 'fcEnd', x: 1136.5, y: 277.1666666666667, width: 210, height: 72, label: 'Selesai', sub: 'Proses selesai', icon: null },
+    ],
+    edges: [
+      { from: 1, to: 2, label: '', fromSide: 'right', toSide: 'left' },
+      { from: 2, to: 3, label: '', fromSide: 'right', toSide: 'left' },
+      { from: 3, to: 4, label: '', fromSide: 'right', toSide: 'left' },
+      { from: 4, to: 5, label: 'Tidak', fromSide: 'bottom', toSide: 'top' },
+      { from: 4, to: 6, label: 'Ya', fromSide: 'right', toSide: 'left' },
+      { from: 5, to: 2, label: '', fromSide: 'left', toSide: 'bottom' },
+      { from: 6, to: 7, label: '', fromSide: 'right', toSide: 'left' },
+    ],
+    nextId: 8,
+  },
+};
+
 function getShapeContentBox(shape) {
   return SHAPE_CONTENT_BOX[shape] || { left: 0.08, right: 0.08, top: 0.12, bottom: 0.12 };
 }
@@ -1512,51 +1542,7 @@ async function fetchAiAuthStatus() {
 }
 
 function seedSampleWorkflow() {
-  // contoh gabungan (Bahasa Indonesia): otomasi balas chat customer service.
-  // Mencampur node biasa (trigger, AI, integrasi) dengan node flowchart.
-  const place = (type, x, y, label, sub) => {
-    const node = spawnNode(type, x, y);
-    updateNode(node.id, { label, sub });
-    refreshNode(node.id);
-    return node;
-  };
-  const link = (a, b, label) => {
-    addEdge(a.id, b.id);
-    if (label) updateEdge(a.id, b.id, { label });
-  };
-
-  // spine
-  const chat    = place('chat',        100, 300, 'Pesan Masuk',     'Pelanggan kirim chat');
-  const ai      = place('agent',       360, 300, 'Analisa Maksud',  'AI deteksi intent');
-  const cek     = place('fcDecision',  620, 300, 'Butuh CS?',       'Kondisi rumit?');
-
-  // jalur manusia (Ya)
-  const cs      = place('slack',       880, 140, 'Teruskan ke CS',  'Notifikasi tim');
-  const endCS   = place('fcEnd',      1140, 140, 'Selesai',         'Ditangani manusia');
-
-  // jalur balas otomatis AI (Tidak) — detail
-  const ambil   = place('http',        880, 440, 'Ambil Konteks',    'Cari data / RAG');
-  const llm     = place('llm',        1140, 440, 'Generate Jawaban', 'LLM susun draf');
-  const yakin   = place('fcDecision', 1400, 440, 'Yakin?',           'Skor keyakinan');
-  const kirim   = place('fcProcess',  1660, 320, 'Kirim Balasan',    'Balas ke pelanggan');
-  const eskal   = place('fcProcess',  1660, 560, 'Eskalasi ke CS',   'Lempar ke agen');
-  const log     = place('database',   1920, 440, 'Simpan Log',       'Catat percakapan');
-  const selesai = place('fcEnd',      2180, 440, 'Selesai',          'Alur berakhir');
-
-  link(chat, ai);
-  link(ai, cek);
-  link(cek, cs, 'Ya');
-  link(cek, ambil, 'Tidak');
-  link(cs, endCS);
-  link(ambil, llm);
-  link(llm, yakin);
-  link(yakin, kirim, 'Ya');
-  link(yakin, eskal, 'Tidak');
-  link(kirim, log);
-  link(eskal, log);
-  link(log, selesai);
-
-  renderEdges();
+  applyWorkflow(structuredClone(SAMPLE_WORKFLOW), null);
 }
 
 function initExportMenu() {
