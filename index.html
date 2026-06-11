@@ -60,24 +60,24 @@
       pointer-events: auto;
     }
     .node-port[data-side="left"] {
-      left: -5px;
-      top: 50%;
-      transform: translateY(-50%);
+      left: calc(var(--port-left-x, 0%) - 5px);
+      top: calc(var(--port-left-y, 50%) - 5px);
+      transform: none;
     }
     .node-port[data-side="right"] {
-      right: -5px;
-      top: 50%;
-      transform: translateY(-50%);
+      left: calc(var(--port-right-x, 100%) - 5px);
+      top: calc(var(--port-right-y, 50%) - 5px);
+      transform: none;
     }
     .node-port[data-side="top"] {
-      top: -5px;
-      left: 50%;
-      transform: translateX(-50%);
+      left: calc(var(--port-top-x, 50%) - 5px);
+      top: calc(var(--port-top-y, 0%) - 5px);
+      transform: none;
     }
     .node-port[data-side="bottom"] {
-      bottom: -5px;
-      left: 50%;
-      transform: translateX(-50%);
+      left: calc(var(--port-bottom-x, 50%) - 5px);
+      top: calc(var(--port-bottom-y, 100%) - 5px);
+      transform: none;
     }
     .node-port:hover {
       background: #4a90d9;
@@ -86,11 +86,44 @@
     }
     .node-port[data-side="left"]:hover,
     .node-port[data-side="right"]:hover {
-      transform: translateY(-50%) scale(1.25);
+      transform: scale(1.25);
     }
     .node-port[data-side="top"]:hover,
     .node-port[data-side="bottom"]:hover {
-      transform: translateX(-50%) scale(1.25);
+      transform: scale(1.25);
+    }
+    .selection-marquee {
+      position: absolute;
+      border: 1px dashed #60a5fa;
+      background: rgba(96, 165, 250, 0.14);
+      border-radius: 8px;
+      pointer-events: none;
+      z-index: 25;
+    }
+    .selection-marquee.hidden {
+      display: none;
+    }
+    .canvas-tool-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid #2d2d2d;
+      background: #202020;
+      color: #9ca3af;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+    .canvas-tool-btn:hover {
+      background: #2a2f36;
+      color: #e5e7eb;
+    }
+    .canvas-tool-btn.active {
+      background: #14324a;
+      color: #93c5fd;
+      border-color: #3b82f6;
     }
 
     .icon-box {
@@ -189,20 +222,29 @@
     }
     .node-shaped:hover .node-shape-path,
     .node-shaped:hover .node-shape-line { stroke: #4a90d9; }
+    .node.selected {
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.8), 0 10px 24px rgba(0, 0, 0, 0.28);
+    }
+    .node.selected .node-shape-path,
+    .node.selected .node-shape-line {
+      stroke: #60a5fa;
+    }
     .node-body {
       position: relative;
       z-index: 1;
+      display: flex;
       box-sizing: border-box;
       overflow: hidden;
+      padding-left: var(--node-body-pad-left, 0.75rem);
+      padding-right: var(--node-body-pad-right, 0.75rem);
+      padding-top: var(--node-body-pad-top, 0.75rem);
+      padding-bottom: var(--node-body-pad-bottom, 0.75rem);
     }
-
-    /* keep text clear of pointy/narrow corners */
-    .node[data-shape="diamond"] .node-body,
-    .node[data-shape="circle"] .node-body { padding-left: 24px; padding-right: 24px; }
-    .node[data-shape="parallelogram"] .node-body { padding-left: 22px; }
-    .node[data-shape="hexagon"] .node-body { padding-left: 18px; padding-right: 18px; }
-    .node[data-shape="offpage"] .node-body { padding-bottom: 14px; }
-    .node[data-shape="delay"] .node-body { padding-right: 22px; }
+    .node-text-block {
+      min-width: 0;
+      width: 100%;
+    }
 
     /* mini shape preview inside the node picker */
     .picker-shape {
@@ -517,7 +559,11 @@
       <span class="text-gray-600">/</span>
       <input id="wfName" value="Untitled board"
         class="bg-transparent text-sm font-medium focus:outline-none focus:bg-[#2d2d2d] rounded px-2 py-1 w-44" />
-      <span class="text-[11px] text-gray-500 border border-[#3a3a3a] rounded px-1.5 py-0.5">Draft</span>
+      <div class="flex items-center bg-[#202020] border border-[#2d2d2d] rounded-lg overflow-hidden">
+        <button data-canvas-tool="pan" class="canvas-tool-btn active !w-8 !h-8 !rounded-none !border-0" title="Pan canvas" aria-pressed="true">✋</button>
+        <div class="w-px h-8 bg-[#2d2d2d]"></div>
+        <button data-canvas-tool="select" class="canvas-tool-btn !w-8 !h-8 !rounded-none !border-0" title="Selection tool" aria-pressed="false">▣</button>
+      </div>
     </div>
     <div class="flex items-center gap-3">
       <span id="saveStatus" class="text-[11px] text-gray-500 min-w-[5rem] text-right">Not saved</span>
@@ -717,6 +763,6 @@
     <input id="loadUiInput" type="file" accept=".json,application/json" class="hidden" />
   </main>
 
-  <script type="module" src="src/main.js?v=21"></script>
+  <script type="module" src="src/main.js?v=23"></script>
 </body>
 </html>

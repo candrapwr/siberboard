@@ -1,4 +1,4 @@
-import { NODE_WIDTH, NODE_HEIGHT } from './constants.js';
+import { NODE_WIDTH, NODE_HEIGHT, NODE_TYPES } from './constants.js';
 
 const state = {
   nodes: [],
@@ -32,13 +32,14 @@ function cloneEdge(edge) {
 
 export function addNode(type, x, y) {
   const id = state.nextId++;
+  const info = NODE_TYPES[type] || {};
   const node = {
     id,
     type,
     x,
     y,
-    width: NODE_WIDTH,
-    height: NODE_HEIGHT,
+    width: info.width || NODE_WIDTH,
+    height: info.height || NODE_HEIGHT,
     label: null,
     sub: null,
     icon: null,

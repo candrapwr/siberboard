@@ -19,8 +19,8 @@ Runtime sekarang **tidak lagi client-side only**. Editor tetap berjalan di brows
 ## Fitur Teknis Saat Ini
 
 - Canvas workflow dengan grid background.
-- Node bisa ditambah dari panel kanan.
-- Flowchart shapes: terminator, diamond, document, cylinder, dll.
+- Node bisa ditambah dari panel kanan dengan palette kategori diagram umum.
+- Shape library sekarang mencakup flowchart, BPMN, UML, ERD, network, UI, dan general blocks.
 - Drag node, resize node, pan, zoom.
 - 4 titik koneksi per node: `left`, `right`, `top`, `bottom`.
 - Edge SVG cubic bezier dengan label.
@@ -364,24 +364,28 @@ Edit [src/constants.js](src/constants.js).
 Contoh node biasa:
 
 ```js
-crm: {
-  label: 'CRM Sync',
-  sub: 'Push contact data',
-  icon: '📇',
-  cat: 'integration',
-  ports: ['in', 'out']
+browser: {
+  label: 'Browser',
+  sub: 'Web page canvas',
+  cat: 'ui',
+  shape: 'browser',
+  hideIcon: true,
+  width: 260,
+  height: 170
 }
 ```
 
 Contoh node flowchart:
 
 ```js
-fcPredefined: {
-  label: 'Predefined',
-  sub: 'Reusable block',
-  cat: 'flowchart',
-  ports: ['in', 'out'],
-  shape: 'subroutine'
+umlClass: {
+  label: 'Class',
+  sub: 'Name, attributes, methods',
+  cat: 'uml',
+  shape: 'classBox',
+  hideIcon: true,
+  width: 240,
+  height: 140
 }
 ```
 

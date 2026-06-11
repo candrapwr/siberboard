@@ -3,10 +3,16 @@ import { MIN_NODE_WIDTH, MIN_NODE_HEIGHT } from './constants.js';
 import { renderEdges, buildEdgePath, portXY } from './bezier.js';
 import { view, applyTransform, screenToWorld } from './viewport.js';
 
-let mode = null;            // 'node' | 'resize' | 'connect' | 'reconnect' | 'pan'
+let mode = null;            // 'node' | 'resize' | 'connect' | 'reconnect' | 'pan' | 'select'
 let dragId = null;
 let selectedFrom = null;
 let reconnectEdge = null;
+let dragNodeIds = [];
+let startNodePositions = new Map();
+let selectionStartWorld = null;
+let selectionRectDirty = false;
+const selectedNodeIds = new Set();
+let canvasTool = 'pan';
 
 let startClientX = 0;
 let startClientY = 0;
@@ -19,6 +25,18 @@ let startPanY = 0;
 
 function notifyWorkflowChanged() {
   document.dispatchEvent(new CustomEvent('workflow:changed'));
+}
+
+function notifySelectionChanged() {
+  document.dispatchEvent(new CustomEvent('selection:changed', {
+    detail: { ids: [...selectedNodeIds] },
+  }));
+}
+
+function notifyToolChanged() {
+  document.dispatchEvent(new CustomEvent('canvas:tool-changed', {
+    detail: { tool: canvasTool },
+  }));
 }
 
 export function initDrag(area) {
@@ -35,7 +53,105 @@ function getNodeEl(id) {
   return document.querySelector(`.node[data-node-id="${id}"]`);
 }
 
+function ensureSelectionMarquee() {
+  let el = document.getElementById('selectionMarquee');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'selectionMarquee';
+    el.className = 'selection-marquee hidden';
+    document.getElementById('canvasArea')?.appendChild(el);
+  }
+  return el;
+}
+
+function updateSelectionUi() {
+  document.querySelectorAll('.node[data-node-id]').forEach(el => {
+    const id = Number(el.dataset.nodeId);
+    el.classList.toggle('selected', selectedNodeIds.has(id));
+  });
+}
+
+function setSelection(ids) {
+  const nextIds = new Set(ids);
+  const unchanged = nextIds.size === selectedNodeIds.size
+    && [...nextIds].every(id => selectedNodeIds.has(id));
+  if (unchanged) return;
+  selectedNodeIds.clear();
+  for (const id of nextIds) selectedNodeIds.add(id);
+  updateSelectionUi();
+  notifySelectionChanged();
+}
+
+export function clearSelection() {
+  if (!selectedNodeIds.size) return;
+  selectedNodeIds.clear();
+  updateSelectionUi();
+  notifySelectionChanged();
+}
+
+export function removeFromSelection(id) {
+  if (!selectedNodeIds.has(id)) return;
+  selectedNodeIds.delete(id);
+  updateSelectionUi();
+  notifySelectionChanged();
+}
+
+export function applySelectionClass(el, id) {
+  if (!el) return;
+  el.classList.toggle('selected', selectedNodeIds.has(id));
+}
+
+export function setCanvasTool(nextTool) {
+  canvasTool = nextTool === 'select' ? 'select' : 'pan';
+  hideSelectionMarquee();
+  notifyToolChanged();
+}
+
+export function getCanvasTool() {
+  return canvasTool;
+}
+
+function updateSelectionMarquee(clientX, clientY) {
+  const marquee = ensureSelectionMarquee();
+  const areaRect = document.getElementById('canvasArea')?.getBoundingClientRect();
+  if (!selectionStartWorld || !areaRect) return;
+  const left = Math.min(startClientX, clientX) - areaRect.left;
+  const top = Math.min(startClientY, clientY) - areaRect.top;
+  const width = Math.abs(clientX - startClientX);
+  const height = Math.abs(clientY - startClientY);
+  marquee.style.left = `${left}px`;
+  marquee.style.top = `${top}px`;
+  marquee.style.width = `${width}px`;
+  marquee.style.height = `${height}px`;
+  marquee.classList.remove('hidden');
+  selectionRectDirty = selectionRectDirty || width > 3 || height > 3;
+}
+
+function hideSelectionMarquee() {
+  const marquee = document.getElementById('selectionMarquee');
+  if (marquee) marquee.classList.add('hidden');
+}
+
+function selectNodesInRect(worldA, worldB, additive = false) {
+  const minX = Math.min(worldA.x, worldB.x);
+  const minY = Math.min(worldA.y, worldB.y);
+  const maxX = Math.max(worldA.x, worldB.x);
+  const maxY = Math.max(worldA.y, worldB.y);
+  const ids = [];
+  document.querySelectorAll('.node[data-node-id]').forEach(el => {
+    const id = Number(el.dataset.nodeId);
+    const node = getNode(id);
+    if (!node) return;
+    const overlaps = node.x < maxX && node.x + node.width > minX
+      && node.y < maxY && node.y + node.height > minY;
+    if (overlaps) ids.push(id);
+  });
+  if (additive) setSelection([...selectedNodeIds, ...ids]);
+  else setSelection(ids);
+}
+
 function onMouseDown(e) {
+  if (e.button !== 0 && e.button !== 1) return;
   // let toolbar buttons (e.g. delete) handle their own clicks
   if (e.target.closest('.node-toolbar')) return;
   // ignore UI chrome (side panels, controls) so they don't trigger pan
@@ -102,23 +218,44 @@ function onMouseDown(e) {
   if (nodeEl) {
     const id = Number(nodeEl.dataset.nodeId);
     const node = getNode(id);
+    if (!selectedNodeIds.has(id)) setSelection([id]);
     mode = 'node';
     dragId = id;
+    dragNodeIds = selectedNodeIds.has(id) ? [...selectedNodeIds] : [id];
+    if (!dragNodeIds.length) dragNodeIds = [id];
+    startNodePositions = new Map(
+      dragNodeIds.map(nodeId => {
+        const target = getNode(nodeId);
+        return [nodeId, { x: target?.x ?? 0, y: target?.y ?? 0 }];
+      })
+    );
     startClientX = e.clientX;
     startClientY = e.clientY;
     startNodeX = node.x;
     startNodeY = node.y;
-    nodeEl.style.cursor = 'grabbing';
+    dragNodeIds.forEach(nodeId => {
+      getNodeEl(nodeId)?.style.setProperty('cursor', 'grabbing');
+    });
     return;
   }
 
-  // empty canvas => pan
-  mode = 'pan';
+  // empty canvas => pan by default, marquee selection only in select tool
+  if (canvasTool !== 'select' || e.button === 1) {
+    mode = 'pan';
+    startClientX = e.clientX;
+    startClientY = e.clientY;
+    startPanX = view.panX;
+    startPanY = view.panY;
+    document.body.style.cursor = 'grabbing';
+    return;
+  }
+
+  mode = 'select';
   startClientX = e.clientX;
   startClientY = e.clientY;
-  startPanX = view.panX;
-  startPanY = view.panY;
-  document.body.style.cursor = 'grabbing';
+  selectionStartWorld = screenToWorld(e.clientX, e.clientY);
+  selectionRectDirty = false;
+  clearSelection();
 }
 
 function onMouseMove(e) {
@@ -180,11 +317,17 @@ function onMouseMove(e) {
   }
 
   if (mode === 'node') {
-    const nx = startNodeX + (e.clientX - startClientX) / view.zoom;
-    const ny = startNodeY + (e.clientY - startClientY) / view.zoom;
-    moveNode(dragId, nx, ny);
-    const el = getNodeEl(dragId);
-    if (el) { el.style.left = nx + 'px'; el.style.top = ny + 'px'; }
+    const dx = (e.clientX - startClientX) / view.zoom;
+    const dy = (e.clientY - startClientY) / view.zoom;
+    dragNodeIds.forEach(nodeId => {
+      const start = startNodePositions.get(nodeId);
+      if (!start) return;
+      const nx = start.x + dx;
+      const ny = start.y + dy;
+      moveNode(nodeId, nx, ny);
+      const el = getNodeEl(nodeId);
+      if (el) { el.style.left = nx + 'px'; el.style.top = ny + 'px'; }
+    });
     renderEdges();
     notifyWorkflowChanged();
     return;
@@ -208,6 +351,11 @@ function onMouseMove(e) {
     view.panX = startPanX + (e.clientX - startClientX);
     view.panY = startPanY + (e.clientY - startClientY);
     applyTransform();
+    return;
+  }
+
+  if (mode === 'select') {
+    updateSelectionMarquee(e.clientX, e.clientY);
   }
 }
 
@@ -255,13 +403,27 @@ function onMouseUp(e) {
   }
 
   if (mode === 'node') {
-    const el = getNodeEl(dragId);
-    if (el) el.style.cursor = 'grab';
+    dragNodeIds.forEach(nodeId => {
+      const el = getNodeEl(nodeId);
+      if (el) el.style.cursor = 'grab';
+    });
+  }
+
+  if (mode === 'select') {
+    const endWorld = screenToWorld(e.clientX, e.clientY);
+    if (selectionStartWorld && selectionRectDirty) {
+      selectNodesInRect(selectionStartWorld, endWorld, false);
+    }
+    hideSelectionMarquee();
+    selectionStartWorld = null;
+    selectionRectDirty = false;
   }
 
   document.body.style.cursor = '';
   mode = null;
   dragId = null;
+  dragNodeIds = [];
+  startNodePositions = new Map();
 }
 
 function toMouse(type, touch) {
