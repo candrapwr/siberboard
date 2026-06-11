@@ -58,8 +58,10 @@ Isi `.env` sesuai kebutuhan:
 
 ```env
 DEEPSEEK_API_KEY=...
+OPENAI_API_KEY=...
 GROK_API_KEY=...
 
+OPENAI_MODEL=gpt-5.4-nano
 AI_LOGIN_USERNAME=admin
 AI_LOGIN_PASSWORD=change_me
 ```
