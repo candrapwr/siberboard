@@ -14,9 +14,10 @@ let aiAuthState = { authenticated: false, username: null, configured: true };
 let aiImageContext = null;
 const LOCAL_STORAGE_KEY = 'siberboard.localWorkflow.v1';
 
-const AI_DEFAULT_MODELS = {
-  deepseek: 'deepseek-chat',
-  grok: 'grok-3-mini',
+let aiProviderDefaults = {
+  deepseek: { defaultModel: 'deepseek-chat', supportsImage: false },
+  openai: { defaultModel: 'gpt-5.4-mini', supportsImage: true },
+  grok: { defaultModel: 'grok-3-mini', supportsImage: true },
 };
 
 // Flowchart shape outlines drawn in a 0..100 box and stretched to the node size
@@ -461,6 +462,18 @@ function setAiLoginStatus(message) {
   if (el) el.textContent = message;
 }
 
+async function fetchAiProviders() {
+  const response = await fetch('/api/ai/providers');
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || 'Gagal memuat konfigurasi AI providers');
+  }
+  if (payload?.providers && typeof payload.providers === 'object') {
+    aiProviderDefaults = payload.providers;
+  }
+  return aiProviderDefaults;
+}
+
 function persistLocalWorkflow() {
   try {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(snapshotWorkflow()));
@@ -501,9 +514,9 @@ function refreshAiImageUi(provider = null) {
   const nameEl = document.getElementById('aiImageName');
   if (!row) return;
 
-  const isGrok = resolvedProvider === 'grok';
-  row.classList.toggle('hidden', !isGrok);
-  if (!isGrok) return;
+  const supportsImage = Boolean(aiProviderDefaults?.[resolvedProvider]?.supportsImage);
+  row.classList.toggle('hidden', !supportsImage);
+  if (!supportsImage) return;
 
   const hasImage = Boolean(aiImageContext);
   clearBtn.classList.toggle('hidden', !hasImage);
@@ -1508,7 +1521,7 @@ function initAiAssistant() {
   });
 
   providerSelect.addEventListener('change', () => {
-    modelInput.value = AI_DEFAULT_MODELS[providerSelect.value] || '';
+    modelInput.value = aiProviderDefaults[providerSelect.value]?.defaultModel || '';
     refreshAiImageUi(providerSelect.value);
   });
 
@@ -1652,7 +1665,7 @@ function initAiAssistant() {
           prompt,
           provider: providerSelect.value,
           model: modelInput.value.trim(),
-          imageDataUrl: providerSelect.value === 'grok' ? aiImageContext?.dataUrl || '' : '',
+          imageDataUrl: ['grok', 'openai'].includes(providerSelect.value) ? aiImageContext?.dataUrl || '' : '',
           workflowName: document.getElementById('wfName').value.trim(),
           state: structuredClone(getState()),
         }),
@@ -1673,7 +1686,7 @@ function initAiAssistant() {
       const operations = Array.isArray(payload.operations) ? payload.operations : [];
       if (operations.length) {
         const result = applyAiOperations(operations, {
-          preserveModelLayout: providerSelect.value === 'grok' && Boolean(aiImageContext?.dataUrl),
+          preserveModelLayout: ['grok', 'openai'].includes(providerSelect.value) && Boolean(aiImageContext?.dataUrl),
         });
         const summary = [
           `buat node ${result.createdNodes}`,
@@ -1718,7 +1731,15 @@ function initAiAssistant() {
     'assistant',
     'Jelaskan workflow yang Anda inginkan, atau minta saya membuat node dan edge otomatis di canvas ini.'
   );
-  refreshAiImageUi();
+  fetchAiProviders()
+    .then(defaults => {
+      modelInput.value = defaults[providerSelect.value]?.defaultModel || modelInput.value;
+      refreshAiImageUi(providerSelect.value);
+    })
+    .catch(error => {
+      setAiStatus(error instanceof Error ? error.message : 'Gagal memuat konfigurasi AI providers');
+      refreshAiImageUi(providerSelect.value);
+    });
   refreshAuthUi().catch(error => {
     setAiLoginStatus(error instanceof Error ? error.message : 'Gagal memeriksa status login');
   });

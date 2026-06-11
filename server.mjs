@@ -40,6 +40,12 @@ const PROVIDERS = {
     baseUrl: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1',
     defaultModel: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
   },
+  openai: {
+    label: 'OpenAI',
+    envKey: 'OPENAI_API_KEY',
+    baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
+    defaultModel: process.env.OPENAI_MODEL || 'gpt-5.4-nano',
+  },
   grok: {
     label: 'Grok',
     envKey: 'GROK_API_KEY',
@@ -490,6 +496,67 @@ async function callProvider({ providerName, model, messages, imageDataUrl }) {
     };
   }
 
+  if (providerName === 'openai') {
+    const requestedModel = model || provider.defaultModel;
+    const systemMessage = messages.find(message => message.role === 'system')?.content || '';
+    const userMessage = messages.findLast(message => message.role === 'user')?.content || '';
+    const userContent = [
+      { type: 'input_text', text: userMessage },
+    ];
+
+    if (imageDataUrl) {
+      userContent.unshift({
+        type: 'input_image',
+        image_url: imageDataUrl,
+        detail: 'high',
+      });
+    }
+
+    const response = await fetch(`${provider.baseUrl}/responses`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: requestedModel,
+        store: false,
+        input: [
+          {
+            role: 'system',
+            content: [
+              {
+                type: 'input_text',
+                text: systemMessage,
+              },
+            ],
+          },
+          {
+            role: 'user',
+            content: userContent,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`${provider.label} API error ${response.status}: ${detail}`);
+    }
+
+    const data = await response.json();
+    const content = extractResponsesText(data);
+    if (typeof content !== 'string' || !content.trim()) {
+      throw new Error('Model returned empty content');
+    }
+
+    return {
+      usage: data?.usage ?? null,
+      resolvedModel: requestedModel,
+      parsed: parseAssistantPayloadFromText(content),
+    };
+  }
+
   const response = await fetch(`${provider.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -539,6 +606,21 @@ function buildUserPrompt({ prompt, workflowName, state, imageDataUrl }) {
   return sections.join('\n\n');
 }
 
+async function handleAiProviders(req, res) {
+  sendJson(res, 200, {
+    providers: Object.fromEntries(
+      Object.entries(PROVIDERS).map(([key, provider]) => [
+        key,
+        {
+          label: provider.label,
+          defaultModel: provider.defaultModel,
+          supportsImage: key === 'grok' || key === 'openai',
+        },
+      ])
+    ),
+  });
+}
+
 async function handleAiChat(req, res) {
   try {
     if (!requireAuth(req, res)) return;
@@ -548,11 +630,17 @@ async function handleAiChat(req, res) {
       return;
     }
 
-    const providerName = body.provider === 'grok' ? 'grok' : 'deepseek';
+    const providerName = body.provider === 'grok'
+      ? 'grok'
+      : body.provider === 'openai'
+        ? 'openai'
+        : 'deepseek';
     const result = await callProvider({
       providerName,
       model: typeof body.model === 'string' ? body.model.trim() : '',
-      imageDataUrl: providerName === 'grok' && typeof body.imageDataUrl === 'string' ? body.imageDataUrl : '',
+      imageDataUrl: (providerName === 'grok' || providerName === 'openai') && typeof body.imageDataUrl === 'string'
+        ? body.imageDataUrl
+        : '',
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: buildUserPrompt(body) },
@@ -676,6 +764,11 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'POST' && req.url === '/api/ai/chat') {
     await handleAiChat(req, res);
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/api/ai/providers') {
+    await handleAiProviders(req, res);
     return;
   }
 
