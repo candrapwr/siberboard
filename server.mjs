@@ -71,6 +71,8 @@ const nodeTypeSummary = Object.entries(NODE_TYPES)
   .join('\n');
 const PORT_SIDES = new Set(['left', 'right', 'top', 'bottom']);
 const LAYOUT_ORIENTATIONS = new Set(['horizontal', 'vertical']);
+const CONNECTOR_TYPES = new Set(['orthogonal', 'curved']);
+const EDGE_MARKERS = new Set(['none', 'arrow']);
 
 function inferFallbackBlankNodeType(op) {
   const text = `${typeof op?.label === 'string' ? op.label : ''} ${typeof op?.sub === 'string' ? op.sub : ''}`
@@ -129,6 +131,9 @@ The response schema is:
       "toMatchLabel": "Analisa Maksud",
       "fromSide": "bottom",
       "toSide": "top",
+      "connector": "orthogonal",
+      "startMarker": "none",
+      "endMarker": "arrow",
       "label": "Ya"
     },
     {
@@ -157,6 +162,9 @@ The response schema is:
       "toMatchLabel": "Analisa Maksud",
       "fromSide": "right",
       "toSide": "left",
+      "connector": "orthogonal",
+      "startMarker": "none",
+      "endMarker": "arrow",
       "label": "Masuk"
     },
     {
@@ -179,6 +187,7 @@ Rules:
 - Use only valid nodeType values from the list below.
 - For flowcharts, prefer top-to-bottom layouts unless the user explicitly asks for horizontal.
 - For general workflow graphs, horizontal or vertical is allowed, but keep the structure readable.
+- Prefer orthogonal connectors by default unless the user explicitly asks for curved lines.
 - If the user provides an image or asks to make a diagram similar to a reference image, prioritize matching the visual composition and relative placement from the image.
 - For image-based reproduction, place nodes explicitly with x/y coordinates that preserve left/right/up/down relationships from the reference.
 - For image-based reproduction, do NOT add auto_layout unless the user explicitly asks to tidy, align, or relayout the result.
@@ -194,7 +203,11 @@ Rules:
 - For existing edges on the canvas, prefer fromNodeId/toNodeId from the current canvas state.
 - For connecting existing nodes, create_edge may use fromNodeId/toNodeId or fromMatchLabel/toMatchLabel.
 - Valid port sides are: left, right, top, bottom.
+- Valid connector types are: orthogonal, curved.
+- Valid edge markers are: none, arrow.
 - Use fromSide/toSide when you want cleaner routing, for example vertical flows can use bottom -> top.
+- If you create or update an edge and the user did not specify the connector style, use connector: "orthogonal".
+- For most directed flows, prefer endMarker: "arrow". Use startMarker only when it is semantically needed.
 - If the user asks to tidy, align, reduce crossing lines, or switch orientation, you may add an auto_layout operation.
 - Valid auto_layout orientations are: horizontal, vertical.
 - Keep reply concise.
@@ -273,6 +286,14 @@ function normalizeSide(value, fallback) {
 
 function normalizeOrientation(value, fallback = 'vertical') {
   return LAYOUT_ORIENTATIONS.has(value) ? value : fallback;
+}
+
+function normalizeConnector(value, fallback = 'orthogonal') {
+  return CONNECTOR_TYPES.has(value) ? value : fallback;
+}
+
+function normalizeEdgeMarker(value, fallback = 'none') {
+  return EDGE_MARKERS.has(value) ? value : fallback;
 }
 
 function extractJsonCandidate(text) {
@@ -367,6 +388,9 @@ function validateAiResponse(payload) {
         toMatchLabel: typeof op.toMatchLabel === 'string' ? op.toMatchLabel.trim() : undefined,
         fromSide: normalizeSide(op.fromSide, 'right'),
         toSide: normalizeSide(op.toSide, 'left'),
+        connector: normalizeConnector(op.connector, 'orthogonal'),
+        startMarker: normalizeEdgeMarker(op.startMarker, 'none'),
+        endMarker: normalizeEdgeMarker(op.endMarker, 'none'),
         label: typeof op.label === 'string' ? op.label : '',
       });
       continue;
@@ -416,6 +440,9 @@ function validateAiResponse(payload) {
         toMatchLabel: typeof op.toMatchLabel === 'string' ? op.toMatchLabel.trim() : undefined,
         fromSide: normalizeSide(op.fromSide, 'right'),
         toSide: normalizeSide(op.toSide, 'left'),
+        connector: normalizeConnector(op.connector, 'orthogonal'),
+        startMarker: normalizeEdgeMarker(op.startMarker, 'none'),
+        endMarker: normalizeEdgeMarker(op.endMarker, 'none'),
         label: typeof op.label === 'string' ? op.label : undefined,
       });
       continue;

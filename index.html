@@ -299,6 +299,30 @@
     .edge-menu button:hover {
       background: #2d2d2d;
     }
+    .edge-menu-body {
+      padding: 10px 12px;
+      border-top: 1px solid #2d2d2d;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .edge-menu-body label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 10px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .edge-menu-body select {
+      background: #1a1a1a;
+      border: 1px solid #3a3a3a;
+      border-radius: 8px;
+      color: #e5e7eb;
+      font-size: 12px;
+      padding: 7px 9px;
+    }
 
     /* side panels (own CSS instead of relying on Tailwind JIT toggle) */
     .side-panel { transform: translateX(100%); transition: transform 0.2s ease; }
@@ -650,6 +674,29 @@
     <div id="edgeMenu" class="edge-menu ui-chrome absolute z-50 hidden">
       <button id="editEdgeBtn" type="button">Edit label</button>
       <button id="deleteEdgeBtn" type="button">Hapus</button>
+      <div class="edge-menu-body">
+        <label>
+          Connector
+          <select id="edgeConnectorType">
+            <option value="curved">Curved</option>
+            <option value="orthogonal">Orthogonal</option>
+          </select>
+        </label>
+        <label>
+          Start Marker
+          <select id="edgeStartMarker">
+            <option value="none">None</option>
+            <option value="arrow">Arrow</option>
+          </select>
+        </label>
+        <label>
+          End Marker
+          <select id="edgeEndMarker">
+            <option value="none">None</option>
+            <option value="arrow">Arrow</option>
+          </select>
+        </label>
+      </div>
     </div>
 
     <button id="aiAssistantBtn"
@@ -763,6 +810,6 @@
     <input id="loadUiInput" type="file" accept=".json,application/json" class="hidden" />
   </main>
 
-  <script type="module" src="src/main.js?v=28"></script>
+  <script type="module" src="src/main.js?v=29"></script>
 </body>
 </html>

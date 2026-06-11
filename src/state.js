@@ -27,6 +27,9 @@ function cloneEdge(edge) {
     label: edge.label ?? '',
     fromSide: edge.fromSide ?? 'right',
     toSide: edge.toSide ?? 'left',
+    connector: edge.connector ?? 'orthogonal',
+    startMarker: edge.startMarker ?? 'none',
+    endMarker: edge.endMarker ?? 'none',
   };
 }
 
@@ -72,11 +75,11 @@ export function resizeNode(id, width, height) {
   }
 }
 
-export function addEdge(from, to, fromSide = 'right', toSide = 'left') {
+export function addEdge(from, to, fromSide = 'right', toSide = 'left', connector = 'orthogonal') {
   if (from === to) return null;
   const exists = state.edges.some(e => e.from === from && e.to === to);
   if (exists) return null;
-  const edge = { from, to, label: '', fromSide, toSide };
+  const edge = { from, to, label: '', fromSide, toSide, connector, startMarker: 'none', endMarker: 'none' };
   state.edges.push(edge);
   return edge;
 }
