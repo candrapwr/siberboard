@@ -1125,7 +1125,43 @@ function wrapLines(text, maxChars, maxLines) {
   return lines;
 }
 
-function nodeSvg(node) {
+function exportTheme(transparent = false) {
+  if (transparent) {
+    return {
+      nodeFill: 'none',
+      nodeStroke: '#334155',
+      nodeStrokeWidth: '1.7',
+      titleFill: '#475569',
+      subFill: '#475569',
+      edgeStroke: '#334155',
+      edgeLabelFill: 'rgba(255,255,255,0.92)',
+      edgeLabelStroke: '#94a3b8',
+      edgeLabelText: '#0f172a',
+      iconBadgeOpacity: '0.18',
+      shapePathFill: 'none',
+      shapePathStroke: '#334155',
+      shapeLineStroke: '#334155',
+    };
+  }
+
+  return {
+    nodeFill: '#2b2b2b',
+    nodeStroke: '#3a3a3a',
+    nodeStrokeWidth: '1.5',
+    titleFill: '#f3f4f6',
+    subFill: '#9ca3af',
+    edgeStroke: '#7a7a7a',
+    edgeLabelFill: '#202020',
+    edgeLabelStroke: '#3a3a3a',
+    edgeLabelText: '#d1d5db',
+    iconBadgeOpacity: '0.13',
+    shapePathFill: '#2b2b2b',
+    shapePathStroke: '#3a3a3a',
+    shapeLineStroke: '#3a3a3a',
+  };
+}
+
+function nodeSvg(node, theme) {
   const info = NODE_TYPES[node.type] || NODE_TYPES.set;
   const color = CATEGORY_COLOR[info.cat] || '#6b7280';
   const shape = info.shape && SHAPE_SVG[info.shape] ? info.shape : null;
@@ -1137,12 +1173,12 @@ function nodeSvg(node) {
 
   let out = shape
     ? `<svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="0 0 100 100" preserveAspectRatio="none">${SHAPE_SVG[shape]}</svg>`
-    : `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" fill="#2b2b2b" stroke="#3a3a3a" stroke-width="1.5"/>`;
+    : `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12" fill="${theme.nodeFill}" stroke="${theme.nodeStroke}" stroke-width="${theme.nodeStrokeWidth}"/>`;
 
   const drawText = (lines, tx, anchor, startY) => {
     let ty = startY;
     for (const ln of lines) {
-      out += `<text x="${tx}" y="${ty}" text-anchor="${anchor}" font-size="13" font-weight="500" fill="#f3f4f6">${escapeXml(ln)}</text>`;
+      out += `<text x="${tx}" y="${ty}" text-anchor="${anchor}" font-size="13" font-weight="500" fill="${theme.titleFill}">${escapeXml(ln)}</text>`;
       ty += 16;
     }
     return ty;
@@ -1157,13 +1193,13 @@ function nodeSvg(node) {
     let ty = drawText(titleLines, cx, 'middle', y + h / 2 - total / 2 + 12);
     ty += subLines.length ? 4 : 0;
     for (const ln of subLines) {
-      out += `<text x="${cx}" y="${ty}" text-anchor="middle" font-size="11" fill="#9ca3af">${escapeXml(ln)}</text>`;
+      out += `<text x="${cx}" y="${ty}" text-anchor="middle" font-size="11" fill="${theme.subFill}">${escapeXml(ln)}</text>`;
       ty += 14;
     }
   } else {
     const iconSize = 36;
     const ix = x + 12, iy = y + h / 2 - iconSize / 2;
-    out += `<rect x="${ix}" y="${iy}" width="${iconSize}" height="${iconSize}" rx="9" fill="${color}" fill-opacity="0.13"/>`;
+    out += `<rect x="${ix}" y="${iy}" width="${iconSize}" height="${iconSize}" rx="9" fill="${color}" fill-opacity="${theme.iconBadgeOpacity}"/>`;
     out += `<text x="${ix + iconSize / 2}" y="${iy + iconSize / 2}" text-anchor="middle" dominant-baseline="central" font-size="18">${escapeXml(icon)}</text>`;
     const tx = ix + iconSize + 12;
     const maxChars = Math.max(6, Math.floor((x + w - 12 - tx) / 7));
@@ -1173,14 +1209,14 @@ function nodeSvg(node) {
     let ty = drawText(titleLines, tx, 'start', y + h / 2 - total / 2 + 12);
     ty += subLines.length ? 4 : 0;
     for (const ln of subLines) {
-      out += `<text x="${tx}" y="${ty}" font-size="11" fill="#9ca3af">${escapeXml(ln)}</text>`;
+      out += `<text x="${tx}" y="${ty}" font-size="11" fill="${theme.subFill}">${escapeXml(ln)}</text>`;
       ty += 14;
     }
   }
   return out;
 }
 
-function edgesSvg() {
+function edgesSvg(theme) {
   let out = '';
   for (const edge of getState().edges) {
     const fromNode = getNode(edge.from);
@@ -1190,15 +1226,15 @@ function edgesSvg() {
     const toSide = edge.toSide ?? 'left';
     const a = portXY(fromNode, fromSide);
     const b = portXY(toNode, toSide);
-    out += `<path d="${buildEdgePath(a.x, a.y, b.x, b.y, fromSide, toSide)}" fill="none" stroke="#7a7a7a" stroke-width="2"/>`;
+    out += `<path d="${buildEdgePath(a.x, a.y, b.x, b.y, fromSide, toSide)}" fill="none" stroke="${theme.edgeStroke}" stroke-width="2.2"/>`;
     const lbl = (edge.label || '').trim();
     if (lbl) {
       const p = edgeLabelPoint(a.x, a.y, b.x, b.y, fromSide, toSide);
       const disp = lbl.length > 22 ? lbl.slice(0, 21) + '…' : lbl;
       const lw = Math.min(160, Math.max(44, disp.length * 7 + 18));
       out += `<g transform="translate(${p.x}, ${p.y})">`
-        + `<rect x="${-lw / 2}" y="-10" width="${lw}" height="20" rx="10" fill="#202020" stroke="#3a3a3a"/>`
-        + `<text text-anchor="middle" dominant-baseline="central" fill="#d1d5db" font-size="10">${escapeXml(disp)}</text>`
+        + `<rect x="${-lw / 2}" y="-10" width="${lw}" height="20" rx="10" fill="${theme.edgeLabelFill}" stroke="${theme.edgeLabelStroke}"/>`
+        + `<text text-anchor="middle" dominant-baseline="central" fill="${theme.edgeLabelText}" font-size="10">${escapeXml(disp)}</text>`
         + `</g>`;
     }
   }
@@ -1208,6 +1244,7 @@ function edgesSvg() {
 function buildWorkflowSvg(transparent = false) {
   const { nodes } = getState();
   if (!nodes.length) return null;
+  const theme = exportTheme(transparent);
 
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const n of nodes) {
@@ -1231,15 +1268,15 @@ function buildWorkflowSvg(transparent = false) {
   <rect x="${minX}" y="${minY}" width="${W}" height="${H}" fill="#1a1a1a"/>
   <rect x="${minX}" y="${minY}" width="${W}" height="${H}" fill="url(#grid)"/>`;
 
-  const nodesSvg = nodes.map(nodeSvg).join('');
+  const nodesSvg = nodes.map(node => nodeSvg(node, theme)).join('');
   const svg =
 `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="${minX} ${minY} ${W} ${H}" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
   <style>
-    .node-shape-path { fill:#2b2b2b; stroke:#3a3a3a; stroke-width:1.5; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
-    .node-shape-line { fill:none; stroke:#3a3a3a; stroke-width:1.5; vector-effect:non-scaling-stroke; }
+    .node-shape-path { fill:${theme.shapePathFill}; stroke:${theme.shapePathStroke}; stroke-width:${theme.nodeStrokeWidth}; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
+    .node-shape-line { fill:none; stroke:${theme.shapeLineStroke}; stroke-width:${theme.nodeStrokeWidth}; vector-effect:non-scaling-stroke; }
   </style>
   ${background}
-  ${edgesSvg()}
+  ${edgesSvg(theme)}
   ${nodesSvg}
 </svg>`;
   return { svg, width: W, height: H };
