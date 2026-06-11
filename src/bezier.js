@@ -302,7 +302,75 @@ function cubicBezierPoint(p0, p1, p2, p3, t) {
   );
 }
 
-export function edgeLabelPoint(x1, y1, x2, y2, fromSide = 'right', toSide = 'left') {
+function orthogonalMidX(x1, x2) {
+  return x1 + (x2 - x1) / 2;
+}
+
+export function orthogonalPathPoints(x1, y1, x2, y2, fromSide = 'right', toSide = 'left') {
+  const midX = orthogonalMidX(x1, x2);
+  const midY = y1 + (y2 - y1) / 2;
+
+  if ((fromSide === 'left' || fromSide === 'right') && (toSide === 'left' || toSide === 'right')) {
+    return [
+      { x: x1, y: y1 },
+      { x: midX, y: y1 },
+      { x: midX, y: y2 },
+      { x: x2, y: y2 },
+    ];
+  }
+
+  if ((fromSide === 'top' || fromSide === 'bottom') && (toSide === 'top' || toSide === 'bottom')) {
+    return [
+      { x: x1, y: y1 },
+      { x: x1, y: midY },
+      { x: x2, y: midY },
+      { x: x2, y: y2 },
+    ];
+  }
+
+  if (fromSide === 'left' || fromSide === 'right') {
+    return [
+      { x: x1, y: y1 },
+      { x: x2, y: y1 },
+      { x: x2, y: y2 },
+    ];
+  }
+
+  return [
+    { x: x1, y: y1 },
+    { x: x1, y: y2 },
+    { x: x2, y: y2 },
+  ];
+}
+
+function polylineLabelPoint(points) {
+  const segments = [];
+  let total = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const a = points[index - 1];
+    const b = points[index];
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    segments.push({ a, b, length });
+    total += length;
+  }
+  let cursor = total / 2;
+  for (const segment of segments) {
+    if (cursor <= segment.length || segment === segments[segments.length - 1]) {
+      const t = segment.length ? cursor / segment.length : 0;
+      return {
+        x: segment.a.x + (segment.b.x - segment.a.x) * t,
+        y: segment.a.y + (segment.b.y - segment.a.y) * t,
+      };
+    }
+    cursor -= segment.length;
+  }
+  return points[Math.floor(points.length / 2)] || { x: 0, y: 0 };
+}
+
+export function edgeLabelPoint(x1, y1, x2, y2, fromSide = 'right', toSide = 'left', connector = 'curved') {
+  if (connector === 'orthogonal') {
+    return polylineLabelPoint(orthogonalPathPoints(x1, y1, x2, y2, fromSide, toSide));
+  }
   const { cx1, cy1, cx2, cy2 } = cubicBezierPoints(x1, y1, x2, y2, fromSide, toSide);
   const t = 0.5;
   return {
@@ -311,11 +379,31 @@ export function edgeLabelPoint(x1, y1, x2, y2, fromSide = 'right', toSide = 'lef
   };
 }
 
+export function buildOrthogonalPath(x1, y1, x2, y2, fromSide = 'right', toSide = 'left') {
+  const points = orthogonalPathPoints(x1, y1, x2, y2, fromSide, toSide);
+  return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+}
+
+export function buildConnectorPath(x1, y1, x2, y2, fromSide = 'right', toSide = 'left', connector = 'curved') {
+  return connector === 'orthogonal'
+    ? buildOrthogonalPath(x1, y1, x2, y2, fromSide, toSide)
+    : buildEdgePath(x1, y1, x2, y2, fromSide, toSide);
+}
+
 export function renderEdges() {
   const svg = document.getElementById('edgeLayer');
   const { edges } = getState();
 
-  let html = '';
+  let html = `
+    <defs>
+      <marker id="edge-arrow-end" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+        <path d="M 0 0 L 7 3.5 L 0 7 z" fill="#7a7a7a"></path>
+      </marker>
+      <marker id="edge-arrow-start" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto-start-reverse" markerUnits="strokeWidth">
+        <path d="M 0 0 L 7 3.5 L 0 7 z" fill="#7a7a7a"></path>
+      </marker>
+    </defs>
+  `;
   for (const edge of edges) {
     const fromNode = getNode(edge.from);
     const toNode = getNode(edge.to);
@@ -323,20 +411,23 @@ export function renderEdges() {
 
     const fromSide = edge.fromSide ?? 'right';
     const toSide = edge.toSide ?? 'left';
+    const connector = edge.connector ?? 'orthogonal';
     const a = portXY(fromNode, fromSide);
     const b = portXY(toNode, toSide);
     const aHandle = edgeEndpointHandleXY(fromNode, fromSide);
     const bHandle = edgeEndpointHandleXY(toNode, toSide);
-    const d = buildEdgePath(a.x, a.y, b.x, b.y, fromSide, toSide);
+    const d = buildConnectorPath(a.x, a.y, b.x, b.y, fromSide, toSide, connector);
     const rawLabel = edge.label?.trim() || '';
+    const markerStart = edge.startMarker === 'arrow' ? 'url(#edge-arrow-start)' : '';
+    const markerEnd = edge.endMarker === 'arrow' ? 'url(#edge-arrow-end)' : '';
 
     html += `<g class="edge-group" data-from="${edge.from}" data-to="${edge.to}">`;
     html += `<path d="${d}" class="edge-hit" fill="none" stroke="transparent" stroke-width="16" />`;
-    html += `<path d="${d}" class="edge-line" fill="none" stroke="#7a7a7a" stroke-width="2" />`;
+    html += `<path d="${d}" class="edge-line" fill="none" stroke="#7a7a7a" stroke-width="2"${markerStart ? ` marker-start="${markerStart}"` : ''}${markerEnd ? ` marker-end="${markerEnd}"` : ''} />`;
     html += `<circle class="edge-endpoint" data-endpoint="from" data-side="${fromSide}" cx="${aHandle.x}" cy="${aHandle.y}" r="5" fill="#1a1a1a" stroke="#7a8699" stroke-width="2" />`;
     html += `<circle class="edge-endpoint" data-endpoint="to" data-side="${toSide}" cx="${bHandle.x}" cy="${bHandle.y}" r="5" fill="#1a1a1a" stroke="#7a8699" stroke-width="2" />`;
     if (rawLabel) {
-      const labelPoint = edgeLabelPoint(a.x, a.y, b.x, b.y, fromSide, toSide);
+      const labelPoint = edgeLabelPoint(a.x, a.y, b.x, b.y, fromSide, toSide, connector);
       const displayLabel = truncateLabel(rawLabel, 22);
       const label = escapeXml(displayLabel);
       const labelWidth = clamp(displayLabel.length * 7 + 18, 44, 160);

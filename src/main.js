@@ -1,5 +1,5 @@
 import { addNode, addEdge, removeNode, removeEdge, updateNode, updateEdge, getNode, getEdge, getState, replaceState } from './state.js';
-import { renderEdges, outputXY, inputXY, buildEdgePath, edgeLabelPoint, portXY, getNodePortCssVars } from './bezier.js';
+import { renderEdges, outputXY, inputXY, buildEdgePath, edgeLabelPoint, portXY, getNodePortCssVars, buildConnectorPath } from './bezier.js';
 import { initDrag, applySelectionClass, clearSelection, removeFromSelection, setCanvasTool, getCanvasTool } from './drag.js';
 import { initViewport, applyTransform, screenToWorld, zoomBy, resetView, view } from './viewport.js';
 import { NODE_TYPES, NODE_CATEGORIES, CATEGORY_COLOR, ICON_CHOICES, NODE_WIDTH, NODE_HEIGHT } from './constants.js';
@@ -124,13 +124,13 @@ const SAMPLE_WORKFLOW = {
       { id: 7, type: 'fcEnd', x: 1136.5, y: 277.1666666666667, width: 210, height: 72, label: 'Selesai', sub: 'Proses selesai', icon: null },
     ],
     edges: [
-      { from: 1, to: 2, label: '', fromSide: 'right', toSide: 'left' },
-      { from: 2, to: 3, label: '', fromSide: 'right', toSide: 'left' },
-      { from: 3, to: 4, label: '', fromSide: 'right', toSide: 'left' },
-      { from: 4, to: 5, label: 'Tidak', fromSide: 'bottom', toSide: 'top' },
-      { from: 4, to: 6, label: 'Ya', fromSide: 'right', toSide: 'left' },
-      { from: 5, to: 2, label: '', fromSide: 'left', toSide: 'bottom' },
-      { from: 6, to: 7, label: '', fromSide: 'right', toSide: 'left' },
+      { from: 1, to: 2, label: '', fromSide: 'right', toSide: 'left', connector: 'orthogonal', startMarker: 'none', endMarker: 'arrow' },
+      { from: 2, to: 3, label: '', fromSide: 'right', toSide: 'left', connector: 'orthogonal', startMarker: 'none', endMarker: 'arrow' },
+      { from: 3, to: 4, label: '', fromSide: 'right', toSide: 'left', connector: 'orthogonal', startMarker: 'none', endMarker: 'arrow' },
+      { from: 4, to: 5, label: 'Tidak', fromSide: 'bottom', toSide: 'top', connector: 'orthogonal', startMarker: 'none', endMarker: 'arrow' },
+      { from: 4, to: 6, label: 'Ya', fromSide: 'right', toSide: 'left', connector: 'orthogonal', startMarker: 'none', endMarker: 'arrow' },
+      { from: 5, to: 2, label: '', fromSide: 'left', toSide: 'bottom', connector: 'orthogonal', startMarker: 'none', endMarker: 'arrow' },
+      { from: 6, to: 7, label: '', fromSide: 'right', toSide: 'left', connector: 'orthogonal', startMarker: 'none', endMarker: 'arrow' },
     ],
     nextId: 8,
   },
@@ -514,10 +514,25 @@ function hideEdgeMenu() {
   activeEdgeMenu = null;
 }
 
+function normalizeConnectorType(value) {
+  return value === 'curved' ? 'curved' : 'orthogonal';
+}
+
+function normalizeEdgeMarker(value) {
+  return value === 'arrow' ? 'arrow' : 'none';
+}
+
 function showEdgeMenu(from, to, clientX, clientY) {
   const menu = document.getElementById('edgeMenu');
   const areaRect = canvasArea.getBoundingClientRect();
   activeEdgeMenu = { from, to };
+  const edge = getEdge(from, to);
+  const connectorInput = document.getElementById('edgeConnectorType');
+  const startMarkerInput = document.getElementById('edgeStartMarker');
+  const endMarkerInput = document.getElementById('edgeEndMarker');
+  if (connectorInput) connectorInput.value = normalizeConnectorType(edge?.connector);
+  if (startMarkerInput) startMarkerInput.value = normalizeEdgeMarker(edge?.startMarker);
+  if (endMarkerInput) endMarkerInput.value = normalizeEdgeMarker(edge?.endMarker);
   menu.style.left = `${clientX - areaRect.left + 8}px`;
   menu.style.top = `${clientY - areaRect.top + 8}px`;
   menu.classList.remove('hidden');
@@ -537,6 +552,9 @@ function initEdgeActions() {
   const menu = document.getElementById('edgeMenu');
   const editBtn = document.getElementById('editEdgeBtn');
   const deleteBtn = document.getElementById('deleteEdgeBtn');
+  const connectorInput = document.getElementById('edgeConnectorType');
+  const startMarkerInput = document.getElementById('edgeStartMarker');
+  const endMarkerInput = document.getElementById('edgeEndMarker');
 
   editBtn.addEventListener('click', () => {
     if (!activeEdgeMenu) return;
@@ -557,6 +575,23 @@ function initEdgeActions() {
     persistLocalWorkflow();
     hideEdgeMenu();
   });
+
+  const applyEdgeStyle = () => {
+    if (!activeEdgeMenu) return;
+    const edge = getEdge(activeEdgeMenu.from, activeEdgeMenu.to);
+    if (!edge) return;
+    updateEdge(activeEdgeMenu.from, activeEdgeMenu.to, {
+      connector: normalizeConnectorType(connectorInput.value),
+      startMarker: normalizeEdgeMarker(startMarkerInput.value),
+      endMarker: normalizeEdgeMarker(endMarkerInput.value),
+    });
+    renderEdges();
+    persistLocalWorkflow();
+  };
+
+  connectorInput.addEventListener('change', applyEdgeStyle);
+  startMarkerInput.addEventListener('change', applyEdgeStyle);
+  endMarkerInput.addEventListener('change', applyEdgeStyle);
 
   menu.addEventListener('click', e => e.stopPropagation());
   canvasArea.addEventListener('click', e => {
@@ -1051,12 +1086,16 @@ function applyAiOperations(operations, options = {}) {
       fromId,
       toId,
       normalizePortSide(op.fromSide, 'right'),
-      normalizePortSide(op.toSide, 'left')
+      normalizePortSide(op.toSide, 'left'),
+      normalizeConnectorType(op.connector)
     );
     if (!edge) continue;
-    if (typeof op.label === 'string' && op.label.trim()) {
-      updateEdge(fromId, toId, { label: op.label.trim() });
-    }
+    updateEdge(fromId, toId, {
+      label: typeof op.label === 'string' ? op.label.trim() : edge.label,
+      connector: normalizeConnectorType(op.connector),
+      startMarker: normalizeEdgeMarker(op.startMarker),
+      endMarker: normalizeEdgeMarker(op.endMarker),
+    });
     createdEdges += 1;
   }
 
@@ -1120,6 +1159,9 @@ function applyAiOperations(operations, options = {}) {
         fromSide: normalizePortSide(op.fromSide, edge.fromSide ?? 'right'),
         toSide: normalizePortSide(op.toSide, edge.toSide ?? 'left'),
         label: typeof op.label === 'string' ? op.label.trim() : edge.label,
+        connector: normalizeConnectorType(op.connector ?? edge.connector),
+        startMarker: normalizeEdgeMarker(op.startMarker ?? edge.startMarker),
+        endMarker: normalizeEdgeMarker(op.endMarker ?? edge.endMarker),
       });
       updatedEdges += 1;
       continue;
@@ -1419,10 +1461,13 @@ function edgesSvg(theme) {
     const toSide = edge.toSide ?? 'left';
     const a = portXY(fromNode, fromSide);
     const b = portXY(toNode, toSide);
-    out += `<path d="${buildEdgePath(a.x, a.y, b.x, b.y, fromSide, toSide)}" fill="none" stroke="${theme.edgeStroke}" stroke-width="2.2"/>`;
+    const connector = edge.connector ?? 'orthogonal';
+    const markerStart = edge.startMarker === 'arrow' ? 'url(#export-edge-arrow-start)' : '';
+    const markerEnd = edge.endMarker === 'arrow' ? 'url(#export-edge-arrow-end)' : '';
+    out += `<path d="${buildConnectorPath(a.x, a.y, b.x, b.y, fromSide, toSide, connector)}" fill="none" stroke="${theme.edgeStroke}" stroke-width="2.2"${markerStart ? ` marker-start="${markerStart}"` : ''}${markerEnd ? ` marker-end="${markerEnd}"` : ''}/>`;
     const lbl = (edge.label || '').trim();
     if (lbl) {
-      const p = edgeLabelPoint(a.x, a.y, b.x, b.y, fromSide, toSide);
+      const p = edgeLabelPoint(a.x, a.y, b.x, b.y, fromSide, toSide, connector);
       const disp = lbl.length > 22 ? lbl.slice(0, 21) + '…' : lbl;
       const lw = Math.min(160, Math.max(44, disp.length * 7 + 18));
       out += `<g transform="translate(${p.x}, ${p.y})">`
@@ -1468,6 +1513,14 @@ function buildWorkflowSvg(transparent = false) {
     .node-shape-path { fill:${theme.shapePathFill}; stroke:${theme.shapePathStroke}; stroke-width:${theme.nodeStrokeWidth}; stroke-linejoin:round; vector-effect:non-scaling-stroke; }
     .node-shape-line { fill:none; stroke:${theme.shapeLineStroke}; stroke-width:${theme.nodeStrokeWidth}; vector-effect:non-scaling-stroke; }
   </style>
+  <defs>
+    <marker id="export-edge-arrow-end" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 7 3.5 L 0 7 z" fill="${theme.edgeStroke}"/>
+    </marker>
+    <marker id="export-edge-arrow-start" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto-start-reverse" markerUnits="strokeWidth">
+      <path d="M 0 0 L 7 3.5 L 0 7 z" fill="${theme.edgeStroke}"/>
+    </marker>
+  </defs>
   ${background}
   ${edgesSvg(theme)}
   ${nodesSvg}

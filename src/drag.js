@@ -1,6 +1,6 @@
 import { moveNode, addEdge, getNode, resizeNode, getEdge, removeEdge, updateEdge } from './state.js';
 import { MIN_NODE_WIDTH, MIN_NODE_HEIGHT } from './constants.js';
-import { renderEdges, buildEdgePath, portXY } from './bezier.js';
+import { renderEdges, buildEdgePath, buildConnectorPath, portXY } from './bezier.js';
 import { view, applyTransform, screenToWorld } from './viewport.js';
 
 let mode = null;            // 'node' | 'resize' | 'connect' | 'reconnect' | 'pan' | 'select'
@@ -264,7 +264,7 @@ function onMouseMove(e) {
     if (!fromNode) return;
     const start = portXY(fromNode, selectedFrom.side);
     const end = screenToWorld(e.clientX, e.clientY);
-    const d = buildEdgePath(start.x, start.y, end.x, end.y, selectedFrom.side, selectedFrom.side);
+    const d = buildConnectorPath(start.x, start.y, end.x, end.y, selectedFrom.side, selectedFrom.side, 'orthogonal');
 
     const svg = document.getElementById('edgeLayer');
     let temp = svg.querySelector('.temp-edge');
@@ -295,9 +295,10 @@ function onMouseMove(e) {
     const movingPoint = screenToWorld(e.clientX, e.clientY);
     const movingSide = movingFrom ? reconnectEdge.fromSide : reconnectEdge.toSide;
 
+    const connector = reconnectEdge.connector ?? 'orthogonal';
     const d = movingFrom
-      ? buildEdgePath(movingPoint.x, movingPoint.y, fixedPoint.x, fixedPoint.y, movingSide, fixedSide)
-      : buildEdgePath(fixedPoint.x, fixedPoint.y, movingPoint.x, movingPoint.y, fixedSide, movingSide);
+      ? buildConnectorPath(movingPoint.x, movingPoint.y, fixedPoint.x, fixedPoint.y, movingSide, fixedSide, connector)
+      : buildConnectorPath(fixedPoint.x, fixedPoint.y, movingPoint.x, movingPoint.y, fixedSide, movingSide, connector);
 
     const svg = document.getElementById('edgeLayer');
     let temp = svg.querySelector('.temp-edge');
@@ -389,10 +390,22 @@ function onMouseUp(e) {
       removeEdge(reconnectEdge.from, reconnectEdge.to);
       const nextEdge = addEdge(nextFrom, nextTo, nextFromSide, nextToSide);
       if (nextEdge) {
-        updateEdge(nextFrom, nextTo, { label: reconnectEdge.label });
+        updateEdge(nextFrom, nextTo, {
+          label: reconnectEdge.label,
+          connector: reconnectEdge.connector ?? 'orthogonal',
+          startMarker: reconnectEdge.startMarker ?? 'none',
+          endMarker: reconnectEdge.endMarker ?? 'none',
+        });
       } else {
         const restored = addEdge(reconnectEdge.from, reconnectEdge.to, reconnectEdge.fromSide, reconnectEdge.toSide);
-        if (restored) updateEdge(reconnectEdge.from, reconnectEdge.to, { label: reconnectEdge.label });
+        if (restored) {
+          updateEdge(reconnectEdge.from, reconnectEdge.to, {
+            label: reconnectEdge.label,
+            connector: reconnectEdge.connector ?? 'orthogonal',
+            startMarker: reconnectEdge.startMarker ?? 'none',
+            endMarker: reconnectEdge.endMarker ?? 'none',
+          });
+        }
       }
       notifyWorkflowChanged();
     }
