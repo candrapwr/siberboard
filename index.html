@@ -810,6 +810,9 @@
     <input id="loadUiInput" type="file" accept=".json,application/json" class="hidden" />
   </main>
 
-  <script type="module" src="src/main.js?v=29"></script>
+  <script type="module" id="app-bootstrap">
+    const devAssetVersion = `${Date.now()}`;
+    import(`./src/main.js?v=${devAssetVersion}`);
+  </script>
 </body>
 </html>
