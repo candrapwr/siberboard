@@ -8,6 +8,8 @@ Rancang alur kerja, flowchart, dan diagram proses secara visual di browser: drag
 
 _Sebuah produk dari **Datasiber Lab** · `board.datasiber.com`_
 
+![UI Preview](ss.png)
+
 </div>
 
 ---
