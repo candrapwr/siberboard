@@ -1,6 +1,6 @@
 import { addNode, addEdge, removeNode, removeEdge, updateNode, updateEdge, getNode, getEdge, getState, replaceState } from './state.js';
-import { renderEdges, outputXY, inputXY, buildEdgePath, edgeLabelPoint, portXY } from './bezier.js';
-import { initDrag } from './drag.js';
+import { renderEdges, outputXY, inputXY, buildEdgePath, edgeLabelPoint, portXY, getNodePortCssVars } from './bezier.js';
+import { initDrag, applySelectionClass, clearSelection, removeFromSelection, setCanvasTool, getCanvasTool } from './drag.js';
 import { initViewport, applyTransform, screenToWorld, zoomBy, resetView, view } from './viewport.js';
 import { NODE_TYPES, NODE_CATEGORIES, CATEGORY_COLOR, ICON_CHOICES, NODE_WIDTH, NODE_HEIGHT } from './constants.js';
 
@@ -23,20 +23,113 @@ let aiProviderDefaults = {
 // Flowchart shape outlines drawn in a 0..100 box and stretched to the node size
 // (preserveAspectRatio="none"); strokes stay even via vector-effect in CSS.
 const SHAPE_SVG = {
+  roundedRect:   '<rect x="3" y="6" width="94" height="88" rx="16" ry="16" class="node-shape-path"/>',
   terminator:    '<rect x="3" y="6" width="94" height="88" rx="46" ry="46" class="node-shape-path"/>',
+  ellipse:       '<ellipse cx="50" cy="50" rx="46" ry="38" class="node-shape-path"/>',
   diamond:       '<polygon points="50,4 96,50 50,96 4,50" class="node-shape-path"/>',
   parallelogram: '<polygon points="24,6 96,6 76,94 4,94" class="node-shape-path"/>',
+  triangle:      '<polygon points="50,4 96,96 4,96" class="node-shape-path"/>',
   hexagon:       '<polygon points="22,6 78,6 96,50 78,94 22,94 4,50" class="node-shape-path"/>',
   manualOp:      '<polygon points="6,8 94,8 80,92 20,92" class="node-shape-path"/>',
   manualInput:   '<polygon points="4,30 96,8 96,92 4,92" class="node-shape-path"/>',
   offpage:       '<polygon points="4,6 96,6 96,62 50,96 4,62" class="node-shape-path"/>',
   circle:        '<ellipse cx="50" cy="50" rx="46" ry="46" class="node-shape-path"/>',
+  doubleCircle:  '<ellipse cx="50" cy="50" rx="46" ry="46" class="node-shape-path"/><ellipse cx="50" cy="50" rx="38" ry="38" class="node-shape-line"/>',
   document:      '<path d="M4,6 L96,6 L96,82 C78,98 66,70 50,82 C34,94 20,74 4,84 Z" class="node-shape-path"/>',
+  multiDocument: '<path d="M12,12 L92,12 L92,80 C75,94 63,69 48,80 C33,91 21,73 12,82 Z" class="node-shape-line"/><path d="M4,6 L84,6 L84,74 C67,88 55,63 40,74 C25,85 13,67 4,76 Z" class="node-shape-path"/>',
   delay:         '<path d="M4,8 L58,8 A42,42 0 0 1 58,92 L4,92 Z" class="node-shape-path"/>',
   display:       '<path d="M22,8 L82,8 C95,8 95,92 82,92 L22,92 C10,80 10,20 22,8 Z" class="node-shape-path"/>',
   cylinder:      '<path d="M4,16 C4,8 96,8 96,16 L96,84 C96,92 4,92 4,84 Z" class="node-shape-path"/><path d="M4,16 C4,24 96,24 96,16" class="node-shape-line"/>',
   subroutine:    '<rect x="3" y="6" width="94" height="88" rx="6" class="node-shape-path"/><line x1="14" y1="6" x2="14" y2="94" class="node-shape-line"/><line x1="86" y1="6" x2="86" y2="94" class="node-shape-line"/>',
+  storedData:    '<path d="M16,8 L96,8 L84,92 L4,92 Z" class="node-shape-path"/><line x1="16" y1="8" x2="4" y2="92" class="node-shape-line"/>',
+  internalStorage:'<rect x="3" y="6" width="94" height="88" rx="6" class="node-shape-path"/><line x1="24" y1="6" x2="24" y2="94" class="node-shape-line"/><line x1="3" y1="26" x2="97" y2="26" class="node-shape-line"/>',
+  card:          '<polygon points="4,20 28,6 96,6 96,94 4,94" class="node-shape-path"/>',
+  tape:          '<path d="M6,20 C20,5 80,5 94,20 L94,80 C80,95 20,95 6,80 Z" class="node-shape-path"/>',
+  cloud:         '<path d="M28,78 H78 C90,78 98,70 98,58 C98,46 91,39 81,37 C78,22 66,12 50,12 C36,12 25,20 20,31 C10,32 2,40 2,52 C2,66 12,78 28,78 Z" class="node-shape-path"/>',
+  note:          '<path d="M6,6 H74 L94,26 V94 H6 Z" class="node-shape-path"/><path d="M74,6 V26 H94" class="node-shape-line"/>',
+  package:       '<path d="M4,18 H38 L46,6 H96 V94 H4 Z" class="node-shape-path"/><line x1="4" y1="18" x2="46" y2="18" class="node-shape-line"/>',
+  subprocess:    '<rect x="3" y="6" width="94" height="88" rx="12" class="node-shape-path"/><line x1="12" y1="82" x2="88" y2="82" class="node-shape-line"/><line x1="12" y1="74" x2="88" y2="74" class="node-shape-line"/>',
+  dataObject:    '<path d="M10,6 H72 L90,24 V94 H10 Z" class="node-shape-path"/><path d="M72,6 V24 H90" class="node-shape-line"/>',
+  swimlane:      '<rect x="3" y="6" width="94" height="88" rx="6" class="node-shape-path"/><line x1="22" y1="6" x2="22" y2="94" class="node-shape-line"/>',
+  lane:          '<rect x="3" y="6" width="94" height="88" rx="6" class="node-shape-path"/><line x1="18" y1="6" x2="18" y2="94" class="node-shape-line"/>',
+  classBox:      '<rect x="3" y="6" width="94" height="88" rx="4" class="node-shape-path"/><line x1="3" y1="30" x2="97" y2="30" class="node-shape-line"/><line x1="3" y1="60" x2="97" y2="60" class="node-shape-line"/>',
+  actor:         '<circle cx="50" cy="18" r="10" class="node-shape-path"/><line x1="50" y1="28" x2="50" y2="62" class="node-shape-line"/><line x1="28" y1="40" x2="72" y2="40" class="node-shape-line"/><line x1="50" y1="62" x2="30" y2="92" class="node-shape-line"/><line x1="50" y1="62" x2="70" y2="92" class="node-shape-line"/>',
+  component:     '<rect x="18" y="12" width="68" height="76" rx="6" class="node-shape-path"/><rect x="8" y="28" width="16" height="14" rx="2" class="node-shape-line"/><rect x="8" y="52" width="16" height="14" rx="2" class="node-shape-line"/>',
+  entity:        '<rect x="3" y="6" width="94" height="88" rx="2" class="node-shape-path"/>',
+  doubleRect:    '<rect x="8" y="11" width="84" height="78" rx="2" class="node-shape-line"/><rect x="3" y="6" width="94" height="88" rx="2" class="node-shape-path"/>',
+  doubleDiamond: '<polygon points="50,4 96,50 50,96 4,50" class="node-shape-path"/><polygon points="50,14 86,50 50,86 14,50" class="node-shape-line"/>',
+  doubleEllipse: '<ellipse cx="50" cy="50" rx="46" ry="38" class="node-shape-path"/><ellipse cx="50" cy="50" rx="38" ry="30" class="node-shape-line"/>',
+  server:        '<path d="M16,18 C16,10 84,10 84,18 V82 C84,90 16,90 16,82 Z" class="node-shape-path"/><path d="M16,18 C16,26 84,26 84,18" class="node-shape-line"/><path d="M16,50 C16,58 84,58 84,50" class="node-shape-line"/>',
+  router:        '<circle cx="50" cy="50" r="34" class="node-shape-path"/><path d="M50,24 V76 M24,50 H76 M34,34 L66,66 M66,34 L34,66" class="node-shape-line"/>',
+  switch:        '<rect x="8" y="22" width="84" height="56" rx="8" class="node-shape-path"/><path d="M24,40 H76 M24,60 H76 M36,32 L24,40 L36,48 M64,52 L76,60 L64,68" class="node-shape-line"/>',
+  shield:        '<path d="M50,6 L86,18 V48 C86,70 72,86 50,94 C28,86 14,70 14,48 V18 Z" class="node-shape-path"/>',
+  laptop:        '<rect x="16" y="18" width="68" height="44" rx="4" class="node-shape-path"/><path d="M8,74 H92 L82,88 H18 Z" class="node-shape-path"/>',
+  mobile:        '<rect x="28" y="6" width="44" height="88" rx="10" class="node-shape-path"/><circle cx="50" cy="80" r="4" class="node-shape-line"/>',
+  window:        '<rect x="4" y="8" width="92" height="84" rx="6" class="node-shape-path"/><line x1="4" y1="24" x2="96" y2="24" class="node-shape-line"/><circle cx="14" cy="16" r="2.5" class="node-shape-line"/><circle cx="22" cy="16" r="2.5" class="node-shape-line"/><circle cx="30" cy="16" r="2.5" class="node-shape-line"/>',
+  browser:       '<rect x="4" y="8" width="92" height="84" rx="8" class="node-shape-path"/><line x1="4" y1="24" x2="96" y2="24" class="node-shape-line"/><line x1="24" y1="16" x2="88" y2="16" class="node-shape-line"/><circle cx="14" cy="16" r="2.5" class="node-shape-line"/>',
+  button:        '<rect x="8" y="20" width="84" height="40" rx="18" class="node-shape-path"/>',
+  inputField:    '<rect x="6" y="22" width="88" height="36" rx="8" class="node-shape-path"/><line x1="16" y1="40" x2="84" y2="40" class="node-shape-line"/>',
+  textarea:      '<rect x="6" y="10" width="88" height="80" rx="8" class="node-shape-path"/><line x1="16" y1="30" x2="84" y2="30" class="node-shape-line"/><line x1="16" y1="46" x2="84" y2="46" class="node-shape-line"/><line x1="16" y1="62" x2="72" y2="62" class="node-shape-line"/>',
 };
+
+const SHAPE_CONTENT_BOX = {
+  diamond: { left: 0.2, right: 0.2, top: 0.18, bottom: 0.18 },
+  circle: { left: 0.2, right: 0.2, top: 0.18, bottom: 0.18 },
+  ellipse: { left: 0.16, right: 0.16, top: 0.18, bottom: 0.18 },
+  triangle: { left: 0.24, right: 0.24, top: 0.1, bottom: 0.12 },
+  parallelogram: { left: 0.16, right: 0.12, top: 0.12, bottom: 0.12 },
+  hexagon: { left: 0.14, right: 0.14, top: 0.12, bottom: 0.12 },
+  offpage: { left: 0.1, right: 0.1, top: 0.12, bottom: 0.2 },
+  delay: { left: 0.08, right: 0.3, top: 0.14, bottom: 0.14 },
+  display: { left: 0.18, right: 0.16, top: 0.14, bottom: 0.14 },
+  manualInput: { left: 0.12, right: 0.1, top: 0.18, bottom: 0.12 },
+  manualOp: { left: 0.12, right: 0.12, top: 0.14, bottom: 0.14 },
+  document: { left: 0.1, right: 0.1, top: 0.12, bottom: 0.22 },
+  multiDocument: { left: 0.1, right: 0.16, top: 0.14, bottom: 0.24 },
+  cylinder: { left: 0.1, right: 0.1, top: 0.18, bottom: 0.16 },
+  cloud: { left: 0.18, right: 0.18, top: 0.22, bottom: 0.24 },
+  note: { left: 0.1, right: 0.16, top: 0.12, bottom: 0.12 },
+  package: { left: 0.1, right: 0.1, top: 0.24, bottom: 0.12 },
+  dataObject: { left: 0.14, right: 0.12, top: 0.16, bottom: 0.12 },
+  actor: { left: 0.22, right: 0.22, top: 0.26, bottom: 0.14 },
+  component: { left: 0.18, right: 0.14, top: 0.16, bottom: 0.16 },
+  server: { left: 0.16, right: 0.16, top: 0.18, bottom: 0.16 },
+  router: { left: 0.22, right: 0.22, top: 0.22, bottom: 0.22 },
+  switch: { left: 0.12, right: 0.12, top: 0.26, bottom: 0.24 },
+  shield: { left: 0.18, right: 0.18, top: 0.18, bottom: 0.2 },
+  laptop: { left: 0.16, right: 0.16, top: 0.2, bottom: 0.34 },
+  mobile: { left: 0.24, right: 0.24, top: 0.14, bottom: 0.16 },
+  window: { left: 0.08, right: 0.08, top: 0.22, bottom: 0.08 },
+  browser: { left: 0.08, right: 0.08, top: 0.22, bottom: 0.08 },
+  inputField: { left: 0.14, right: 0.14, top: 0.3, bottom: 0.3 },
+  textarea: { left: 0.12, right: 0.12, top: 0.18, bottom: 0.16 },
+  button: { left: 0.16, right: 0.16, top: 0.22, bottom: 0.22 },
+};
+
+function getShapeContentBox(shape) {
+  return SHAPE_CONTENT_BOX[shape] || { left: 0.08, right: 0.08, top: 0.12, bottom: 0.12 };
+}
+
+function getNodeBodyCssVars(shape) {
+  if (!shape) return {};
+  const box = getShapeContentBox(shape);
+  return {
+    '--node-body-pad-left': `${(box.left * 100).toFixed(2)}%`,
+    '--node-body-pad-right': `${(box.right * 100).toFixed(2)}%`,
+    '--node-body-pad-top': `${(box.top * 100).toFixed(2)}%`,
+    '--node-body-pad-bottom': `${(box.bottom * 100).toFixed(2)}%`,
+  };
+}
+
+function getNodeContentRect(node, shape) {
+  const box = getShapeContentBox(shape);
+  return {
+    x: node.x + node.width * box.left,
+    y: node.y + node.height * box.top,
+    width: node.width * (1 - box.left - box.right),
+    height: node.height * (1 - box.top - box.bottom),
+  };
+}
 
 // fallback glyph for the plain-rectangle flowchart node (Process) in the picker
 const PICKER_RECT = '<rect x="5" y="22" width="90" height="56" rx="10" class="node-shape-path"/>';
@@ -54,7 +147,7 @@ function createNodeElement(node) {
   const info = NODE_TYPES[node.type] || NODE_TYPES.set;
   const color = CATEGORY_COLOR[info.cat] || '#6b7280';
   const shape = info.shape && SHAPE_SVG[info.shape] ? info.shape : null;
-  const noIcon = info.cat === 'flowchart';
+  const noIcon = info.cat === 'flowchart' || info.hideIcon;
 
   const div = document.createElement('div');
   div.className = shape
@@ -64,8 +157,15 @@ function createNodeElement(node) {
   div.style.top = node.y + 'px';
   div.style.width = node.width + 'px';
   div.style.height = node.height + 'px';
+  for (const [key, value] of Object.entries(getNodePortCssVars(node))) {
+    div.style.setProperty(key, value);
+  }
+  for (const [key, value] of Object.entries(getNodeBodyCssVars(shape))) {
+    div.style.setProperty(key, value);
+  }
   div.dataset.nodeId = node.id;
   if (shape) div.dataset.shape = shape;
+  applySelectionClass(div, node.id);
 
   const label = node.label ?? info.label;
   const icon = node.icon ?? info.icon;
@@ -77,23 +177,26 @@ function createNodeElement(node) {
 
   // Flowchart nodes carry their meaning through the shape, so they drop the emoji
   // icon and center the label; everything else keeps the icon + left-aligned text.
-  let bodyClass, iconHtml, textClass, titleClass, subClass;
+  let bodyClass, iconHtml, textWrapClass, textClass, titleClass, subClass;
   if (noIcon) {
-    bodyClass = `${shape ? 'node-body ' : ''}flex items-center justify-center text-center w-full h-full px-4 py-3 pointer-events-none`;
+    bodyClass = `${shape ? 'node-body ' : ''}flex items-center justify-center text-center w-full h-full pointer-events-none${shape ? '' : ' px-4 py-3'}`;
     iconHtml = '';
+    textWrapClass = 'node-text-block';
     textClass = 'min-w-0';
     titleClass = 'node-title text-[12px] font-medium leading-[1.3] text-gray-100 line-clamp-2';
     subClass = 'node-sub mt-0.5 text-[10px] leading-[1.35] text-gray-400 line-clamp-2';
   } else if (shape) {
-    bodyClass = 'node-body flex items-center gap-2.5 w-full h-full px-4 py-3 pointer-events-none';
+    bodyClass = 'node-body flex items-center gap-2.5 w-full h-full pointer-events-none';
     iconHtml = `<div class="icon-box node-icon" style="background:${color}22;">${icon}</div>`;
-    textClass = 'min-w-0 flex-1';
+    textWrapClass = 'node-text-block flex-1';
+    textClass = 'min-w-0';
     titleClass = 'node-title text-[13px] font-medium leading-[1.3] text-gray-100 line-clamp-2';
     subClass = 'node-sub mt-0.5 text-[10px] leading-[1.35] text-gray-400 line-clamp-2';
   } else {
     bodyClass = 'node-body flex items-start gap-3 w-full h-full px-3 py-3 pr-5 pointer-events-none';
     iconHtml = `<div class="icon-box node-icon mt-0.5" style="background:${color}22;">${icon}</div>`;
-    textClass = 'min-w-0 flex-1 self-center';
+    textWrapClass = 'node-text-block flex-1 self-center';
+    textClass = 'min-w-0';
     titleClass = 'node-title text-[13px] font-medium leading-[1.3] text-gray-100 line-clamp-2';
     subClass = 'node-sub mt-1 text-[10px] leading-[1.35] text-gray-400 line-clamp-2';
   }
@@ -106,9 +209,11 @@ function createNodeElement(node) {
     ${shapeLayer}
     <div class="${bodyClass}">
       ${iconHtml}
-      <div class="${textClass}">
-        <div class="${titleClass}">${label}</div>
-        <div class="${subClass}">${sub}</div>
+      <div class="${textWrapClass}">
+        <div class="${textClass}">
+          <div class="${titleClass}">${label}</div>
+          <div class="${subClass}">${sub}</div>
+        </div>
       </div>
     </div>
     <div class="node-toolbar">
@@ -130,8 +235,15 @@ function refreshNode(id) {
   const info = NODE_TYPES[node.type] || NODE_TYPES.set;
   const el = nodeEl(id);
   if (!el) return;
+  applySelectionClass(el, id);
   el.style.width = node.width + 'px';
   el.style.height = node.height + 'px';
+  for (const [key, value] of Object.entries(getNodePortCssVars(node))) {
+    el.style.setProperty(key, value);
+  }
+  for (const [key, value] of Object.entries(getNodeBodyCssVars(info.shape && SHAPE_SVG[info.shape] ? info.shape : null))) {
+    el.style.setProperty(key, value);
+  }
   el.querySelector('.node-title').textContent = node.label ?? info.label;
   el.querySelector('.node-sub').textContent = node.sub ?? info.sub;
   const iconEl = el.querySelector('.node-icon');
@@ -164,7 +276,10 @@ function renderAllNodes() {
 function addNodeAtCenter(type) {
   const r = canvasArea.getBoundingClientRect();
   const c = screenToWorld(r.left + r.width / 2, r.top + r.height / 2);
-  spawnNode(type, c.x - NODE_WIDTH / 2, c.y - NODE_HEIGHT / 2);
+  const info = NODE_TYPES[type] || {};
+  const width = info.width || NODE_WIDTH;
+  const height = info.height || NODE_HEIGHT;
+  spawnNode(type, c.x - width / 2, c.y - height / 2);
 }
 
 /* ---- node picker panel (data-driven + search) ---- */
@@ -174,6 +289,7 @@ function renderPicker(filter = '') {
   let html = '';
 
   for (const cat of NODE_CATEGORIES) {
+    if (cat.id === 'legacy') continue;
     const items = Object.entries(NODE_TYPES).filter(([, v]) =>
       v.cat === cat.id &&
       (!q || v.label.toLowerCase().includes(q) || v.sub.toLowerCase().includes(q))
@@ -182,7 +298,7 @@ function renderPicker(filter = '') {
 
     html += `<div class="text-[11px] uppercase tracking-wider text-gray-500 px-2 pt-3 pb-1">${cat.label}</div>`;
     for (const [key, v] of items) {
-      const glyph = cat.id === 'flowchart'
+      const glyph = v.shape && SHAPE_SVG[v.shape]
         ? `<div class="picker-shape"><svg viewBox="0 0 100 100" preserveAspectRatio="none">${SHAPE_SVG[v.shape] || PICKER_RECT}</svg></div>`
         : `<div class="icon-box" style="background:${cat.color}22;">${v.icon}</div>`;
       html += `
@@ -245,6 +361,7 @@ function initNodeActions() {
     if (delBtn) {
       const el = delBtn.closest('.node[data-node-id]');
       const id = Number(el.dataset.nodeId);
+      removeFromSelection(id);
       removeNode(id);
       el.remove();
       renderEdges();
@@ -300,7 +417,7 @@ function openEditor(id) {
   const preview = document.getElementById('editIconPreview');
 
   // flowchart nodes have no icon, so hide the whole icon control for them
-  const noIcon = info.cat === 'flowchart';
+  const noIcon = info.cat === 'flowchart' || info.hideIcon;
   document.getElementById('iconEditRow').style.display = noIcon ? 'none' : '';
 
   labelInput.value = node.label ?? info.label;
@@ -425,6 +542,29 @@ function initZoomControls() {
   document.getElementById('zoomIn').addEventListener('click', () => zoomBy(1.2));
   document.getElementById('zoomOut').addEventListener('click', () => zoomBy(1 / 1.2));
   document.getElementById('zoomFit').addEventListener('click', () => resetView());
+}
+
+function updateCanvasToolUi(tool = getCanvasTool()) {
+  document.querySelectorAll('[data-canvas-tool]').forEach(button => {
+    const active = button.dataset.canvasTool === tool;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+  canvasArea.classList.toggle('selection-tool-active', tool === 'select');
+}
+
+function initCanvasTools() {
+  document.querySelectorAll('[data-canvas-tool]').forEach(button => {
+    button.addEventListener('click', () => {
+      setCanvasTool(button.dataset.canvasTool);
+      updateCanvasToolUi();
+    });
+  });
+  document.addEventListener('canvas:tool-changed', event => {
+    updateCanvasToolUi(event.detail?.tool);
+  });
+  setCanvasTool('pan');
+  updateCanvasToolUi('pan');
 }
 
 function snapshotWorkflow() {
@@ -928,6 +1068,7 @@ function applyAiOperations(operations, options = {}) {
         continue;
       }
       removeNode(nodeId);
+      removeFromSelection(nodeId);
       nodeEl(nodeId)?.remove();
       if (editingId === nodeId) closeEditor();
       deletedNodes += 1;
@@ -1000,6 +1141,7 @@ function applyAiOperations(operations, options = {}) {
 }
 
 function applyWorkflow(payload, sourceName = null) {
+  clearSelection();
   replaceState(payload.state || {});
   renderAllNodes();
   renderEdges();
@@ -1178,11 +1320,12 @@ function nodeSvg(node, theme) {
   const info = NODE_TYPES[node.type] || NODE_TYPES.set;
   const color = CATEGORY_COLOR[info.cat] || '#6b7280';
   const shape = info.shape && SHAPE_SVG[info.shape] ? info.shape : null;
-  const noIcon = info.cat === 'flowchart';
+  const noIcon = info.cat === 'flowchart' || info.hideIcon;
   const { x, y, width: w, height: h } = node;
   const label = node.label ?? info.label;
   const sub = node.sub ?? info.sub;
   const icon = node.icon ?? info.icon;
+  const content = shape ? getNodeContentRect(node, shape) : { x, y, width: w, height: h };
 
   let out = shape
     ? `<svg x="${x}" y="${y}" width="${w}" height="${h}" viewBox="0 0 100 100" preserveAspectRatio="none">${SHAPE_SVG[shape]}</svg>`
@@ -1197,13 +1340,17 @@ function nodeSvg(node, theme) {
     return ty;
   };
 
+  const totalTextHeight = (titleLines, subLines) => (
+    titleLines.length * 16 + (subLines.length ? subLines.length * 14 + 4 : 0)
+  );
+
   if (noIcon) {
-    const cx = x + w / 2;
-    const maxChars = Math.max(6, Math.floor((w - 28) / 7));
+    const cx = content.x + content.width / 2;
+    const maxChars = Math.max(6, Math.floor(content.width / 7));
     const titleLines = wrapLines(label, maxChars, 2);
     const subLines = wrapLines(sub, Math.floor(maxChars * 1.1), 2);
-    const total = titleLines.length * 16 + (subLines.length ? subLines.length * 14 + 4 : 0);
-    let ty = drawText(titleLines, cx, 'middle', y + h / 2 - total / 2 + 12);
+    const total = totalTextHeight(titleLines, subLines);
+    let ty = drawText(titleLines, cx, 'middle', content.y + content.height / 2 - total / 2 + 12);
     ty += subLines.length ? 4 : 0;
     for (const ln of subLines) {
       out += `<text x="${cx}" y="${ty}" text-anchor="middle" font-size="11" fill="${theme.subFill}">${escapeXml(ln)}</text>`;
@@ -1211,15 +1358,18 @@ function nodeSvg(node, theme) {
     }
   } else {
     const iconSize = 36;
-    const ix = x + 12, iy = y + h / 2 - iconSize / 2;
-    out += `<rect x="${ix}" y="${iy}" width="${iconSize}" height="${iconSize}" rx="9" fill="${color}" fill-opacity="${theme.iconBadgeOpacity}"/>`;
-    out += `<text x="${ix + iconSize / 2}" y="${iy + iconSize / 2}" text-anchor="middle" dominant-baseline="central" font-size="18">${escapeXml(icon)}</text>`;
+    const ix = content.x;
     const tx = ix + iconSize + 12;
-    const maxChars = Math.max(6, Math.floor((x + w - 12 - tx) / 7));
+    const maxChars = Math.max(6, Math.floor((content.x + content.width - tx) / 7));
     const titleLines = wrapLines(label, maxChars, 2);
     const subLines = wrapLines(sub, maxChars, 2);
-    const total = titleLines.length * 16 + (subLines.length ? subLines.length * 14 + 4 : 0);
-    let ty = drawText(titleLines, tx, 'start', y + h / 2 - total / 2 + 12);
+    const textHeight = totalTextHeight(titleLines, subLines);
+    const rowHeight = Math.max(iconSize, textHeight);
+    const rowTop = content.y + content.height / 2 - rowHeight / 2;
+    const iy = rowTop + rowHeight / 2 - iconSize / 2;
+    out += `<rect x="${ix}" y="${iy}" width="${iconSize}" height="${iconSize}" rx="9" fill="${color}" fill-opacity="${theme.iconBadgeOpacity}"/>`;
+    out += `<text x="${ix + iconSize / 2}" y="${iy + iconSize / 2}" text-anchor="middle" dominant-baseline="central" font-size="18">${escapeXml(icon)}</text>`;
+    let ty = drawText(titleLines, tx, 'start', rowTop + rowHeight / 2 - textHeight / 2 + 12);
     ty += subLines.length ? 4 : 0;
     for (const ln of subLines) {
       out += `<text x="${tx}" y="${ty}" font-size="11" fill="${theme.subFill}">${escapeXml(ln)}</text>`;
@@ -1435,6 +1585,7 @@ function clearWorkflow() {
   }
   if (!window.confirm('Hapus semua node dan koneksi di canvas?')) return;
 
+  clearSelection();
   replaceState({ nodes: [], edges: [], nextId: 1 });
   renderAllNodes();
   renderEdges();
@@ -1752,7 +1903,8 @@ initNodePanel();
 initNodeActions();
 initNodeEditor();
 initEdgeActions();
-initZoomControls();
+  initZoomControls();
+  initCanvasTools();
 initPersistence();
 initAiAssistant();
 

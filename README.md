@@ -26,7 +26,7 @@ Cocok untuk:
 
 ## Fitur
 
-- 🧩 **Banyak jenis node** — Flowchart, Blank, Triggers, Flow, Data & Code, Integrations, AI.
+- 🧩 **Library node lebih luas** — General, Flowchart, BPMN, UML, ERD, Network, UI.
 - 🔷 **Node flowchart dengan bentuk asli** — Start/End, Process, Decision, Input/Output, Document, Database, dan lainnya.
 - 🔌 **4 titik konektor per node** — kiri, kanan, atas, bawah.
 - 🏷️ **Label konektor** untuk cabang seperti `Ya` / `Tidak`.
@@ -88,7 +88,7 @@ Folder hasil build ada di `dist/`.
 
 ### Menambah node
 
-Klik tombol **➕** di kanan atas, cari node, lalu klik item yang diinginkan.
+Klik tombol **➕** di kanan atas, cari node, lalu klik item yang diinginkan. Palette sekarang berisi kategori diagram umum yang lebih dekat ke gaya `app.diagrams.net`.
 
 ### Memindah & resize
 
