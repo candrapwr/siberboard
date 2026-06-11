@@ -233,6 +233,22 @@ function sanitizePath(urlPath) {
   return normalized === '/' ? '/index.html' : normalized;
 }
 
+function requestUrl(req) {
+  const host = req.headers.host || `${HOST}:${PORT}`;
+  return new URL(req.url || '/', `http://${host}`);
+}
+
+function rewriteJsModuleImports(source, version) {
+  if (!version) return source;
+  return source.replace(
+    /(from\s+['"])(\.{1,2}\/[^'"]+?\.js)(['"])/g,
+    (_, prefix, specifier, suffix) => {
+      const separator = specifier.includes('?') ? '&' : '?';
+      return `${prefix}${specifier}${separator}v=${encodeURIComponent(version)}${suffix}`;
+    },
+  );
+}
+
 function parseCookies(req) {
   const header = req.headers.cookie || '';
   return Object.fromEntries(
@@ -746,6 +762,7 @@ async function handleAuthLogout(req, res) {
 }
 
 async function serveStatic(req, res) {
+  const request = requestUrl(req);
   const filePath = sanitizePath(req.url || '/');
   const resolved = join(ROOT_DIR, filePath);
 
@@ -758,6 +775,7 @@ async function serveStatic(req, res) {
     const type = MIME_TYPES[extname(resolved)] || 'application/octet-stream';
     const extension = extname(resolved);
     const isHtml = extension === '.html';
+    const isJsModule = extension === '.js' || extension === '.mjs';
     const isDevAsset = !USE_DIST_ROOT && ['.js', '.mjs', '.css', '.json', '.html'].includes(extension);
     const cacheControl = isHtml
       ? 'no-cache, no-store, must-revalidate'
@@ -772,6 +790,13 @@ async function serveStatic(req, res) {
     });
     if (req.method === 'HEAD') {
       res.end();
+      return;
+    }
+    if (!USE_DIST_ROOT && isJsModule) {
+      const version = request.searchParams.get('v') || '';
+      const source = await readFile(resolved, 'utf8');
+      const rewritten = rewriteJsModuleImports(source, version);
+      res.end(rewritten);
       return;
     }
     createReadStream(resolved).pipe(res);
