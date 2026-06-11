@@ -42,8 +42,8 @@ const hashOf = (file) => createHash('sha256').update(readFileSync(join(dist, fil
 const cssV = hashOf('styles.css');
 const appV = hashOf('app.js');
 
-// 5. production index.html: swap CDN script for compiled CSS, and the dev
-//    module entry for the bundled app. The inline <style> block is kept as-is.
+// 5. production index.html: swap CDN script for compiled CSS, and replace the
+//    dev bootstrap with the bundled app entry. The inline <style> block is kept as-is.
 let html = readFileSync(join(root, 'index.html'), 'utf8');
 html = html
   .replace(
@@ -51,8 +51,8 @@ html = html
     `\n  <link rel="stylesheet" href="styles.css?v=${cssV}" />`,
   )
   .replace(
-    /<script type="module" src="src\/main\.js[^"]*"><\/script>/,
-    `<script type="module" src="app.js?v=${appV}"></script>`,
+    /<script type="module" id="app-bootstrap">[\s\S]*?<\/script>/,
+    `<script type="module">import "./app.js?v=${appV}";</script>`,
   );
 writeFileSync(join(dist, 'index.html'), html);
 

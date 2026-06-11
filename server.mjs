@@ -25,9 +25,8 @@ try {
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 8000);
-const ROOT_DIR = process.env.STATIC_DIR === 'dist'
-  ? join(__dirname, 'dist')
-  : __dirname;
+const USE_DIST_ROOT = process.env.STATIC_DIR === 'dist';
+const ROOT_DIR = USE_DIST_ROOT ? join(__dirname, 'dist') : __dirname;
 const AI_LOGIN_USERNAME = process.env.AI_LOGIN_USERNAME || '';
 const AI_LOGIN_PASSWORD = process.env.AI_LOGIN_PASSWORD || '';
 const SESSION_COOKIE = 'siberboard_ai_session';
@@ -757,7 +756,20 @@ async function serveStatic(req, res) {
       return;
     }
     const type = MIME_TYPES[extname(resolved)] || 'application/octet-stream';
-    res.writeHead(200, { 'Content-Type': type });
+    const extension = extname(resolved);
+    const isHtml = extension === '.html';
+    const isDevAsset = !USE_DIST_ROOT && ['.js', '.mjs', '.css', '.json', '.html'].includes(extension);
+    const cacheControl = isHtml
+      ? 'no-cache, no-store, must-revalidate'
+      : isDevAsset
+        ? 'no-cache, no-store, must-revalidate'
+        : USE_DIST_ROOT && ['.js', '.css', '.png', '.svg', '.ico'].includes(extension)
+          ? 'public, max-age=31536000, immutable'
+          : 'public, max-age=300';
+    res.writeHead(200, {
+      'Content-Type': type,
+      'Cache-Control': cacheControl,
+    });
     if (req.method === 'HEAD') {
       res.end();
       return;
@@ -776,7 +788,10 @@ async function serveFallbackIndex(res) {
   const indexPath = join(ROOT_DIR, 'index.html');
   try {
     const html = await readFile(indexPath, 'utf8');
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+    });
     res.end(html);
   } catch {
     sendJson(res, 404, { error: 'index.html not found' });
