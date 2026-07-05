@@ -665,7 +665,6 @@ async function handleAiProviders(req, res) {
 
 async function handleAiChat(req, res) {
   try {
-    if (!requireAuth(req, res)) return;
     const body = await readBody(req);
     if (typeof body.prompt !== 'string' || !body.prompt.trim()) {
       sendJson(res, 400, { error: 'Prompt is required.' });
@@ -704,11 +703,10 @@ async function handleAiChat(req, res) {
 }
 
 async function handleAuthStatus(req, res) {
-  const session = getAuthenticatedUser(req);
   sendJson(res, 200, {
-    authenticated: !!session,
-    username: session?.username ?? null,
-    configured: Boolean(AI_LOGIN_USERNAME && AI_LOGIN_PASSWORD),
+    authenticated: true,
+    username: null,
+    configured: true,
   });
 }
 

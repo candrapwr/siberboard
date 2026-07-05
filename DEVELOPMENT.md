@@ -11,10 +11,9 @@ SiberBoard adalah editor workflow / flowchart berbasis browser dengan:
 - 4 port konektor per node,
 - save/load JSON,
 - export PNG,
-- AI assistant server-side,
-- login sederhana untuk membatasi akses AI.
+- AI assistant server-side.
 
-Runtime sekarang **tidak lagi client-side only**. Editor tetap berjalan di browser, tetapi AI assistant dan autentikasi ditangani oleh server Node lokal.
+Runtime sekarang **tidak lagi client-side only**. Editor tetap berjalan di browser, tetapi AI assistant ditangani oleh server Node lokal.
 
 ## Fitur Teknis Saat Ini
 
@@ -37,7 +36,6 @@ Runtime sekarang **tidak lagi client-side only**. Editor tetap berjalan di brows
   - update edge,
   - delete edge,
   - auto-layout.
-- Login AI assistant berbasis `.env`.
 
 ## Struktur Project
 
@@ -101,16 +99,12 @@ GROK_MODEL=grok-build-0.1
 
 HOST=127.0.0.1
 PORT=8000
-
-AI_LOGIN_USERNAME=admin
-AI_LOGIN_PASSWORD=change_me
 ```
 
 Catatan:
 
 - `.env` dibaca saat `server.mjs` startup.
 - setelah mengubah `.env`, restart `npm run dev`.
-- login AI saat ini memakai session in-memory, jadi restart server akan menghapus session aktif.
 
 ## Arsitektur Runtime
 
@@ -143,8 +137,6 @@ Catatan:
   Server Node untuk:
   - serve file statis,
   - membaca `.env`,
-  - autentikasi login AI,
-  - session cookie sederhana,
   - pemanggilan provider AI,
   - validasi respons AI.
 
@@ -216,12 +208,11 @@ Port:
 ### Alur
 
 1. User klik tombol `AI Assistant`.
-2. Jika belum login, panel login muncul.
-3. Jika login berhasil, panel assistant dibuka.
-4. Frontend mengirim state kanvas + prompt ke `/api/ai/chat`.
-5. Server memanggil provider AI.
-6. Server memvalidasi operasi.
-7. Frontend mengaplikasikan operasi ke state dan DOM.
+2. Panel assistant dibuka.
+3. Frontend mengirim state kanvas + prompt ke `/api/ai/chat`.
+4. Server memanggil provider AI.
+5. Server memvalidasi operasi.
+6. Frontend mengaplikasikan operasi ke state dan DOM.
 
 ### Endpoint auth
 
@@ -233,7 +224,7 @@ Port:
 
 - `POST /api/ai/chat`
 
-Route ini memerlukan session login yang valid.
+Route ini dapat dipakai tanpa session login.
 
 ### Operasi AI yang didukung
 
@@ -391,9 +382,6 @@ umlClass: {
 
 ## Batasan Saat Ini
 
-- Session login AI masih in-memory.
-- Belum ada hashing password.
-- Belum ada expiry session.
 - Belum ada undo/redo.
 - Belum ada multi-select.
 - Auto-layout masih dasar.
