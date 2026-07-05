@@ -10,7 +10,7 @@ let activeEdgeMenu = null;
 let currentFileName = null;
 let aiBusy = false;
 let aiLoadingEl = null;
-let aiAuthState = { authenticated: false, username: null, configured: true };
+let aiAuthState = { authenticated: true, username: null, configured: true };
 let aiImageContext = null;
 const LOCAL_STORAGE_KEY = 'siberboard.localWorkflow.v1';
 
@@ -1584,12 +1584,10 @@ async function exportImage(transparent = false) {
 }
 
 async function fetchAiAuthStatus() {
-  const response = await fetch('/api/auth/status');
-  const payload = await response.json();
   aiAuthState = {
-    authenticated: Boolean(payload.authenticated),
-    username: payload.username ?? null,
-    configured: payload.configured !== false,
+    authenticated: true,
+    username: null,
+    configured: true,
   };
   return aiAuthState;
 }
@@ -1676,10 +1674,6 @@ function initAiAssistant() {
     loginUser.focus();
   };
   const open = () => {
-    if (!aiAuthState.authenticated) {
-      openLogin();
-      return;
-    }
     loginPanel.classList.add('hidden');
     loginPanel.setAttribute('aria-hidden', 'true');
     panel.classList.remove('hidden');
@@ -1755,20 +1749,12 @@ function initAiAssistant() {
 
   async function refreshAuthUi() {
     const state = await fetchAiAuthStatus();
-    openBtn.title = state.authenticated
-      ? `AI Assistant (${state.username || 'authenticated'})`
-      : 'Login untuk membuka AI Assistant';
-    if (!state.configured) {
-      setAiLoginStatus('AI login belum dikonfigurasi di server.');
-      loginSubmitBtn.disabled = true;
-      return;
-    }
+    openBtn.title = 'Buka AI Assistant';
+    loginPanel.classList.add('hidden');
+    loginPanel.setAttribute('aria-hidden', 'true');
+    logoutBtn.classList.add('hidden');
     loginSubmitBtn.disabled = false;
-    setAiLoginStatus(
-      state.authenticated
-        ? `Login sebagai ${state.username}.`
-        : 'Masuk untuk memakai AI assistant.'
-    );
+    setAiLoginStatus(state.authenticated ? 'AI Assistant siap dipakai.' : 'AI Assistant siap dipakai.');
   }
 
   async function submitLogin() {
@@ -1821,8 +1807,6 @@ function initAiAssistant() {
   });
 
   logoutBtn.addEventListener('click', async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    aiAuthState = { authenticated: false, username: null, configured: aiAuthState.configured };
     close();
     await refreshAuthUi();
   });
@@ -1837,11 +1821,6 @@ function initAiAssistant() {
   sendBtn.addEventListener('click', async () => {
     const prompt = promptInput.value.trim();
     if (!prompt || aiBusy) return;
-    if (!aiAuthState.authenticated) {
-      setAiStatus('Login diperlukan.');
-      openLogin();
-      return;
-    }
 
     appendAiMessage('user', prompt);
     setAiBusy(true);
@@ -1863,11 +1842,6 @@ function initAiAssistant() {
 
       const payload = await response.json();
       if (!response.ok) {
-        if (response.status === 401) {
-          aiAuthState.authenticated = false;
-          await refreshAuthUi();
-          openLogin();
-        }
         throw new Error(payload.error || 'AI request failed');
       }
 

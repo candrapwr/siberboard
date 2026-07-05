@@ -37,15 +37,13 @@ Cocok untuk:
 - 💾 **Save & Load** board sebagai file JSON.
 - 🧹 **Clear** untuk mengosongkan board.
 - 🤖 **AI Assistant** — generate node, koneksi, edit node/edge, hapus elemen, dan auto-layout.
-- 🔐 **Login untuk AI Assistant** — akses AI dibatasi dengan username/password dari `.env`.
 
 ## Menjalankan SiberBoard
 
 SiberBoard sekarang memakai server Node lokal untuk:
 
 - menyajikan file statis,
-- memanggil provider AI,
-- dan menangani login AI assistant.
+- dan memanggil provider AI.
 
 ### Setup
 
@@ -62,8 +60,6 @@ OPENAI_API_KEY=...
 GROK_API_KEY=...
 
 OPENAI_MODEL=gpt-5.4-nano
-AI_LOGIN_USERNAME=admin
-AI_LOGIN_PASSWORD=change_me
 ```
 
 ### Development
@@ -112,8 +108,7 @@ Klik tombol **✎** pada toolbar hover node, atau double-click node.
 
 Klik **AI Assistant** di kiri bawah.
 
-- Jika belum login, panel login akan muncul.
-- Setelah login, Anda bisa meminta AI untuk:
+- Anda bisa langsung meminta AI untuk:
   - membuat flowchart,
   - menghubungkan node,
   - mengubah label/deskripsi/icon,
@@ -145,8 +140,7 @@ Ganti label node "Analisa Maksud" menjadi "Analisis Intent" lalu rapikan layout.
 
 ## Catatan
 
-- AI assistant memerlukan login dan API key provider.
-- Session login AI disimpan di memory server; restart server akan logout semua session.
+- AI assistant memerlukan API key provider.
 - Auto-layout saat ini masih dasar; hasilnya sudah lebih rapi, tapi belum setara engine graph layout penuh.
 
 Ingin memahami implementasinya lebih detail? Lihat **[DEVELOPMENT.md](DEVELOPMENT.md)**.
