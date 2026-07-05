@@ -1,7 +1,7 @@
 import { addNode, addEdge, removeNode, removeEdge, updateNode, updateEdge, getNode, getEdge, getState, replaceState } from './state.js';
 import { renderEdges, outputXY, inputXY, buildEdgePath, edgeLabelPoint, portXY, getNodePortCssVars, buildConnectorPath } from './bezier.js';
 import { initDrag, applySelectionClass, clearSelection, removeFromSelection, setCanvasTool, getCanvasTool } from './drag.js';
-import { initViewport, applyTransform, screenToWorld, zoomBy, resetView, view } from './viewport.js';
+import { initViewport, applyTransform, screenToWorld, zoomBy, resetView, fitBBox, view } from './viewport.js';
 import { NODE_TYPES, NODE_CATEGORIES, CATEGORY_COLOR, ICON_CHOICES, NODE_WIDTH, NODE_HEIGHT } from './constants.js';
 
 const viewport = document.getElementById('viewport');
@@ -606,7 +606,31 @@ function initEdgeActions() {
 function initZoomControls() {
   document.getElementById('zoomIn').addEventListener('click', () => zoomBy(1.2));
   document.getElementById('zoomOut').addEventListener('click', () => zoomBy(1 / 1.2));
-  document.getElementById('zoomFit').addEventListener('click', () => resetView());
+  document.getElementById('zoomFit').addEventListener('click', () => fitToView());
+}
+
+/**
+ * Compute a bounding box over all nodes (with a small margin) and zoom/pan
+ * the canvas so everything is visible. If the canvas is empty, resets the view.
+ */
+function fitToView(opts = {}) {
+  const { nodes } = getState();
+  if (!nodes.length) {
+    resetView();
+    return;
+  }
+  const margin = 40;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const node of nodes) {
+    minX = Math.min(minX, node.x);
+    minY = Math.min(minY, node.y);
+    maxX = Math.max(maxX, node.x + node.width);
+    maxY = Math.max(maxY, node.y + node.height);
+  }
+  fitBBox(
+    { minX: minX - margin, minY: minY - margin, maxX: maxX + margin, maxY: maxY + margin },
+    { padding: opts.padding ?? 80 },
+  );
 }
 
 function updateCanvasToolUi(tool = getCanvasTool()) {
@@ -766,6 +790,117 @@ function appendAiMessage(role, text) {
   row.appendChild(wrap);
   list.appendChild(row);
   scrollAiHistoryToBottom();
+}
+
+/**
+ * Create an assistant message row whose text can be updated incrementally
+ * (used during SSE streaming). Returns a function `appendText(delta)` that
+ * safely appends escaped text.
+ */
+function createStreamingAssistantMessage() {
+  const list = document.getElementById('aiMessages');
+  const row = document.createElement('div');
+  row.className = 'assistant-msg-row assistant';
+
+  const avatar = document.createElement('div');
+  avatar.className = 'assistant-avatar assistant';
+  avatar.textContent = 'AI';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'assistant-msg-wrap';
+
+  const meta = document.createElement('div');
+  meta.className = 'assistant-msg-meta';
+  meta.textContent = 'Assistant';
+
+  const item = document.createElement('div');
+  item.className = 'assistant-msg assistant';
+  item.textContent = '';
+
+  wrap.append(meta, item);
+  row.append(avatar, wrap);
+  list.appendChild(row);
+  scrollAiHistoryToBottom();
+
+  let acc = '';
+  const appendText = (delta) => {
+    if (!delta) return;
+    acc += delta;
+    item.innerHTML = escapeHtml(acc);
+    scrollAiHistoryToBottom();
+  };
+  const setText = (text) => {
+    acc = String(text || '');
+    item.innerHTML = escapeHtml(acc);
+    scrollAiHistoryToBottom();
+  };
+  return { row, appendText, setText };
+}
+
+/**
+ * Consume an SSE stream (from fetch().body) and dispatch events.
+ * Handlers: onReply(delta), onOperation(op), onDone(data), onError(data).
+ */
+async function consumeAiSseStream(body, handlers) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let sep;
+      while ((sep = buffer.indexOf('\n\n')) !== -1) {
+        const block = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        dispatchSseBlock(block, handlers);
+      }
+    }
+    if (buffer.trim()) dispatchSseBlock(buffer, handlers);
+  } finally {
+    try { reader.releaseLock(); } catch { /* noop */ }
+  }
+}
+
+function dispatchSseBlock(block, handlers) {
+  let eventName = 'message';
+  const dataLines = [];
+  for (const line of block.split(/\r?\n/)) {
+    if (!line || line.startsWith(':')) continue;
+    const colon = line.indexOf(':');
+    const field = colon === -1 ? line : line.slice(0, colon);
+    const valueRaw = colon === -1 ? '' : line.slice(colon + 1);
+    const value = valueRaw.startsWith(' ') ? valueRaw.slice(1) : valueRaw;
+    if (field === 'event') eventName = value;
+    else if (field === 'data') dataLines.push(value);
+  }
+  if (!dataLines.length) return;
+  let data;
+  try {
+    data = JSON.parse(dataLines.join('\n'));
+  } catch { return; }
+
+  if (eventName === 'reply' && typeof data.delta === 'string') {
+    handlers.onReply?.(data.delta);
+  } else if (eventName === 'operation' && data && typeof data === 'object') {
+    handlers.onOperation?.(data);
+  } else if (eventName === 'done') {
+    handlers.onDone?.(data);
+  } else if (eventName === 'error') {
+    handlers.onError?.(data);
+  }
+}
+
+function summarizeAiStreamProgress(ctx) {
+  return [
+    ctx.createdNodes ? `+node ${ctx.createdNodes}` : '',
+    ctx.createdEdges ? `+edge ${ctx.createdEdges}` : '',
+    ctx.updatedNodes ? `edit node ${ctx.updatedNodes}` : '',
+    ctx.deletedNodes ? `hapus node ${ctx.deletedNodes}` : '',
+    ctx.updatedEdges ? `edit edge ${ctx.updatedEdges}` : '',
+    ctx.deletedEdges ? `hapus edge ${ctx.deletedEdges}` : '',
+  ].filter(Boolean).join(' · ') || 'Memproses...';
 }
 
 function showAiLoading() {
@@ -1033,28 +1168,70 @@ function autoLayoutGraph(orientation = detectPreferredLayoutOrientation()) {
     }
   }
 
+  // After layout, re-derive each edge's port sides from the new relative
+  // positions of its endpoints. This corrects sides the AI (or manual edits)
+  // may have set inconsistently, which otherwise causes edges to loop/overlap.
+  for (const edge of edges) {
+    const a = getNode(edge.from);
+    const b = getNode(edge.to);
+    if (!a || !b) continue;
+    const { fromSide, toSide } = inferEdgeSides(a, b);
+    updateEdge(edge.from, edge.to, { fromSide, toSide });
+  }
+
   renderEdges();
   return true;
 }
 
-function applyAiOperations(operations, options = {}) {
-  const preserveModelLayout = Boolean(options.preserveModelLayout);
-  const refMap = new Map();
-  let createdNodes = 0;
-  let createdEdges = 0;
-  let updatedNodes = 0;
-  let deletedNodes = 0;
-  let updatedEdges = 0;
-  let deletedEdges = 0;
-  let missedNodeTargets = 0;
-  let missedEdgeTargets = 0;
-  let autoLayoutRequested = false;
-  let requestedLayoutOrientation = null;
-  let hasExplicitPositions = false;
+/**
+ * Pick sensible port sides for an edge based on the relative position of
+ * node `a` (from) and node `b` (to). Uses node centers so the result matches
+ * the dominant axis between them, then maps that axis to opposite ports.
+ */
+function inferEdgeSides(a, b) {
+  const acx = a.x + a.width / 2;
+  const acy = a.y + a.height / 2;
+  const bcx = b.x + b.width / 2;
+  const bcy = b.y + b.height / 2;
+  const dx = bcx - acx;
+  const dy = bcy - acy;
 
-  for (const op of operations) {
-    if (op.type !== 'create_node' || !NODE_TYPES[op.nodeType]) continue;
-    if (Number.isFinite(op.x) || Number.isFinite(op.y)) hasExplicitPositions = true;
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    // predominantly horizontal flow
+    return dx >= 0
+      ? { fromSide: 'right', toSide: 'left' }
+      : { fromSide: 'left', toSide: 'right' };
+  }
+  // predominantly vertical flow
+  return dy >= 0
+    ? { fromSide: 'bottom', toSide: 'top' }
+    : { fromSide: 'top', toSide: 'bottom' };
+}
+
+function createAiStreamContext() {
+  return {
+    refMap: new Map(),
+    createdNodes: 0,
+    createdEdges: 0,
+    updatedNodes: 0,
+    deletedNodes: 0,
+    updatedEdges: 0,
+    deletedEdges: 0,
+    missedNodeTargets: 0,
+    missedEdgeTargets: 0,
+    autoLayoutRequested: false,
+    requestedLayoutOrientation: null,
+    hasExplicitPositions: false,
+    anyStructuralChange: false,
+  };
+}
+
+function applySingleAiOperation(op, ctx, options = {}) {
+  const preserveModelLayout = Boolean(options.preserveModelLayout);
+
+  if (op.type === 'create_node') {
+    if (!NODE_TYPES[op.nodeType]) return;
+    if (Number.isFinite(op.x) || Number.isFinite(op.y)) ctx.hasExplicitPositions = true;
     const node = spawnNode(op.nodeType, op.x, op.y);
     const patch = {};
     if (typeof op.label === 'string') patch.label = op.label;
@@ -1064,15 +1241,16 @@ function applyAiOperations(operations, options = {}) {
     if (Number.isFinite(op.height)) patch.height = op.height;
     updateNode(node.id, patch);
     refreshNode(node.id);
-    refMap.set(op.ref, node.id);
-    createdNodes += 1;
+    refMapSet(ctx.refMap, op.ref, node.id);
+    ctx.createdNodes += 1;
+    ctx.anyStructuralChange = true;
+    renderEdges();
+    return;
   }
 
-  for (const op of operations) {
-    if (op.type !== 'create_edge') continue;
-    let fromId = typeof op.fromRef === 'string' ? refMap.get(op.fromRef) : null;
-    let toId = typeof op.toRef === 'string' ? refMap.get(op.toRef) : null;
-
+  if (op.type === 'create_edge') {
+    let fromId = typeof op.fromRef === 'string' ? ctx.refMap.get(op.fromRef) : null;
+    let toId = typeof op.toRef === 'string' ? ctx.refMap.get(op.toRef) : null;
     if (!fromId || !toId) {
       const existingTarget = findEdgeTargetForAi(op);
       if (existingTarget) {
@@ -1080,8 +1258,10 @@ function applyAiOperations(operations, options = {}) {
         toId = toId || existingTarget.toId;
       }
     }
-
-    if (!fromId || !toId) continue;
+    if (!fromId || !toId) {
+      ctx.missedEdgeTargets += 1;
+      return;
+    }
     const edge = addEdge(
       fromId,
       toId,
@@ -1089,127 +1269,160 @@ function applyAiOperations(operations, options = {}) {
       normalizePortSide(op.toSide, 'left'),
       normalizeConnectorType(op.connector)
     );
-    if (!edge) continue;
+    if (!edge) {
+      ctx.missedEdgeTargets += 1;
+      return;
+    }
     updateEdge(fromId, toId, {
       label: typeof op.label === 'string' ? op.label.trim() : edge.label,
       connector: normalizeConnectorType(op.connector),
       startMarker: normalizeEdgeMarker(op.startMarker),
       endMarker: normalizeEdgeMarker(op.endMarker),
     });
-    createdEdges += 1;
+    ctx.createdEdges += 1;
+    ctx.anyStructuralChange = true;
+    renderEdges();
+    return;
   }
 
-  for (const op of operations) {
-    if (op.type === 'update_node') {
-      const nodeId = findNodeIdForAiTarget(op);
-      if (!nodeId) {
-        missedNodeTargets += 1;
-        continue;
-      }
-      if (Number.isFinite(op.x) || Number.isFinite(op.y)) hasExplicitPositions = true;
-      const patch = {};
-      if (typeof op.nodeType === 'string' && NODE_TYPES[op.nodeType]) patch.type = op.nodeType;
-      if (typeof op.label === 'string') patch.label = op.label;
-      if (typeof op.sub === 'string') patch.sub = op.sub;
-      if (typeof op.icon === 'string') patch.icon = op.icon;
-      if (Number.isFinite(op.x)) patch.x = op.x;
-      if (Number.isFinite(op.y)) patch.y = op.y;
-      if (Number.isFinite(op.width)) patch.width = op.width;
-      if (Number.isFinite(op.height)) patch.height = op.height;
-      updateNode(nodeId, patch);
-      const node = getNode(nodeId);
-      const el = nodeEl(nodeId);
-      if (el && node && !patch.type) {
-        el.style.left = node.x + 'px';
-        el.style.top = node.y + 'px';
-      }
-      if (patch.type) rerenderNode(nodeId);
-      else refreshNode(nodeId);
-      if (node) renderEdges();
-      updatedNodes += 1;
-      continue;
+  if (op.type === 'update_node') {
+    const nodeId = findNodeIdForAiTarget(op);
+    if (!nodeId) {
+      ctx.missedNodeTargets += 1;
+      return;
     }
-
-    if (op.type === 'delete_node') {
-      const nodeId = findNodeIdForAiTarget(op);
-      if (!nodeId) {
-        missedNodeTargets += 1;
-        continue;
-      }
-      removeNode(nodeId);
-      removeFromSelection(nodeId);
-      nodeEl(nodeId)?.remove();
-      if (editingId === nodeId) closeEditor();
-      deletedNodes += 1;
-      continue;
+    if (Number.isFinite(op.x) || Number.isFinite(op.y)) ctx.hasExplicitPositions = true;
+    const patch = {};
+    if (typeof op.nodeType === 'string' && NODE_TYPES[op.nodeType]) patch.type = op.nodeType;
+    if (typeof op.label === 'string') patch.label = op.label;
+    if (typeof op.sub === 'string') patch.sub = op.sub;
+    if (typeof op.icon === 'string') patch.icon = op.icon;
+    if (Number.isFinite(op.x)) patch.x = op.x;
+    if (Number.isFinite(op.y)) patch.y = op.y;
+    if (Number.isFinite(op.width)) patch.width = op.width;
+    if (Number.isFinite(op.height)) patch.height = op.height;
+    updateNode(nodeId, patch);
+    const node = getNode(nodeId);
+    const el = nodeEl(nodeId);
+    if (el && node && !patch.type) {
+      el.style.left = node.x + 'px';
+      el.style.top = node.y + 'px';
     }
-
-    if (op.type === 'update_edge') {
-      const target = findEdgeTargetForAi(op);
-      if (!target) {
-        missedEdgeTargets += 1;
-        continue;
-      }
-      const edge = getEdge(target.fromId, target.toId);
-      if (!edge) {
-        missedEdgeTargets += 1;
-        continue;
-      }
-      updateEdge(target.fromId, target.toId, {
-        fromSide: normalizePortSide(op.fromSide, edge.fromSide ?? 'right'),
-        toSide: normalizePortSide(op.toSide, edge.toSide ?? 'left'),
-        label: typeof op.label === 'string' ? op.label.trim() : edge.label,
-        connector: normalizeConnectorType(op.connector ?? edge.connector),
-        startMarker: normalizeEdgeMarker(op.startMarker ?? edge.startMarker),
-        endMarker: normalizeEdgeMarker(op.endMarker ?? edge.endMarker),
-      });
-      updatedEdges += 1;
-      continue;
-    }
-
-    if (op.type === 'delete_edge') {
-      const target = findEdgeTargetForAi(op);
-      if (!target) {
-        missedEdgeTargets += 1;
-        continue;
-      }
-      if (!getEdge(target.fromId, target.toId)) {
-        missedEdgeTargets += 1;
-        continue;
-      }
-      removeEdge(target.fromId, target.toId);
-      deletedEdges += 1;
-      continue;
-    }
-
-    if (op.type === 'auto_layout') {
-      autoLayoutRequested = true;
-      requestedLayoutOrientation = op.orientation || requestedLayoutOrientation;
-    }
+    if (patch.type) rerenderNode(nodeId);
+    else refreshNode(nodeId);
+    if (node) renderEdges();
+    ctx.updatedNodes += 1;
+    return;
   }
 
-  const hasStructuralChanges = createdNodes || createdEdges || deletedNodes || deletedEdges;
-  const shouldAutoLayout = autoLayoutRequested || (
-    hasStructuralChanges &&
-    !(preserveModelLayout && hasExplicitPositions)
+  if (op.type === 'delete_node') {
+    const nodeId = findNodeIdForAiTarget(op);
+    if (!nodeId) {
+      ctx.missedNodeTargets += 1;
+      return;
+    }
+    removeNode(nodeId);
+    removeFromSelection(nodeId);
+    nodeEl(nodeId)?.remove();
+    if (editingId === nodeId) closeEditor();
+    ctx.deletedNodes += 1;
+    ctx.anyStructuralChange = true;
+    renderEdges();
+    return;
+  }
+
+  if (op.type === 'update_edge') {
+    const target = findEdgeTargetForAi(op);
+    if (!target) {
+      ctx.missedEdgeTargets += 1;
+      return;
+    }
+    const edge = getEdge(target.fromId, target.toId);
+    if (!edge) {
+      ctx.missedEdgeTargets += 1;
+      return;
+    }
+    updateEdge(target.fromId, target.toId, {
+      fromSide: normalizePortSide(op.fromSide, edge.fromSide ?? 'right'),
+      toSide: normalizePortSide(op.toSide, edge.toSide ?? 'left'),
+      label: typeof op.label === 'string' ? op.label.trim() : edge.label,
+      connector: normalizeConnectorType(op.connector ?? edge.connector),
+      startMarker: normalizeEdgeMarker(op.startMarker ?? edge.startMarker),
+      endMarker: normalizeEdgeMarker(op.endMarker ?? edge.endMarker),
+    });
+    ctx.updatedEdges += 1;
+    renderEdges();
+    return;
+  }
+
+  if (op.type === 'delete_edge') {
+    const target = findEdgeTargetForAi(op);
+    if (!target) {
+      ctx.missedEdgeTargets += 1;
+      return;
+    }
+    if (!getEdge(target.fromId, target.toId)) {
+      ctx.missedEdgeTargets += 1;
+      return;
+    }
+    removeEdge(target.fromId, target.toId);
+    ctx.deletedEdges += 1;
+    ctx.anyStructuralChange = true;
+    renderEdges();
+    return;
+  }
+
+  if (op.type === 'auto_layout') {
+    ctx.autoLayoutRequested = true;
+    ctx.requestedLayoutOrientation = op.orientation || ctx.requestedLayoutOrientation;
+  }
+}
+
+function refMapSet(refMap, ref, id) {
+  if (typeof ref === 'string' && ref.trim()) refMap.set(ref, id);
+}
+
+function finalizeAiStream(ctx, options = {}) {
+  const preserveModelLayout = Boolean(options.preserveModelLayout);
+  const { anyStructuralChange } = ctx;
+  const shouldAutoLayout = ctx.autoLayoutRequested || (
+    anyStructuralChange && !(preserveModelLayout && ctx.hasExplicitPositions)
   );
   const layoutApplied = shouldAutoLayout
-    ? autoLayoutGraph(requestedLayoutOrientation || detectPreferredLayoutOrientation())
+    ? autoLayoutGraph(ctx.requestedLayoutOrientation || detectPreferredLayoutOrientation())
     : false;
   renderEdges();
   persistLocalWorkflow();
+  // After structural AI changes, reframe the canvas so the result is fully
+  // visible instead of leaving the user zoomed/panned on empty space.
+  if (anyStructuralChange) {
+    try { fitToView(); } catch { /* viewport not ready */ }
+  }
   return {
-    createdNodes,
-    createdEdges,
-    updatedNodes,
-    deletedNodes,
-    updatedEdges,
-    deletedEdges,
-    missedNodeTargets,
-    missedEdgeTargets,
+    createdNodes: ctx.createdNodes,
+    createdEdges: ctx.createdEdges,
+    updatedNodes: ctx.updatedNodes,
+    deletedNodes: ctx.deletedNodes,
+    updatedEdges: ctx.updatedEdges,
+    deletedEdges: ctx.deletedEdges,
+    missedNodeTargets: ctx.missedNodeTargets,
+    missedEdgeTargets: ctx.missedEdgeTargets,
     layoutApplied,
-    layoutOrientation: requestedLayoutOrientation || detectPreferredLayoutOrientation(),
+    layoutOrientation: ctx.requestedLayoutOrientation || detectPreferredLayoutOrientation(),
   };
+}
+
+// Batch fallback (used for non-streaming callers / future fallback).
+function applyAiOperations(operations, options = {}) {
+  const ctx = createAiStreamContext();
+  // Process in the order: create_node → create_edge → others, mirroring legacy
+  // batch behaviour so refMap is fully populated before edges resolve.
+  const ordered = [
+    ...operations.filter(op => op?.type === 'create_node'),
+    ...operations.filter(op => op?.type !== 'create_node'),
+  ];
+  for (const op of ordered) applySingleAiOperation(op, ctx, options);
+  return finalizeAiStream(ctx, options);
 }
 
 function applyWorkflow(payload, sourceName = null) {
@@ -1822,9 +2035,18 @@ function initAiAssistant() {
     const prompt = promptInput.value.trim();
     if (!prompt || aiBusy) return;
 
+    const provider = providerSelect.value;
+    const preserveModelLayout = ['grok', 'openai'].includes(provider) && Boolean(aiImageContext?.dataUrl);
+
     appendAiMessage('user', prompt);
     setAiBusy(true);
     setAiStatus('Menghubungi model...');
+
+    const streamMsg = createStreamingAssistantMessage();
+    const ctx = createAiStreamContext();
+    let replyReceived = false;
+    let finalModel = '';
+    let finalProvider = '';
 
     try {
       const response = await fetch('/api/ai/chat', {
@@ -1832,60 +2054,84 @@ function initAiAssistant() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt,
-          provider: providerSelect.value,
+          provider,
           model: modelInput.value.trim(),
-          imageDataUrl: ['grok', 'openai'].includes(providerSelect.value) ? aiImageContext?.dataUrl || '' : '',
+          imageDataUrl: ['grok', 'openai'].includes(provider) ? aiImageContext?.dataUrl || '' : '',
           workflowName: document.getElementById('wfName').value.trim(),
           state: structuredClone(getState()),
         }),
       });
 
-      const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload.error || 'AI request failed');
+        // Non-SSE error response (e.g. 400/500 with JSON).
+        let message = 'AI request failed';
+        try {
+          const errPayload = await response.json();
+          message = errPayload.error || message;
+        } catch { /* ignore parse errors */ }
+        throw new Error(message);
       }
 
-      appendAiMessage('assistant', payload.reply || 'AI merespons tanpa teks.');
-
-      const operations = Array.isArray(payload.operations) ? payload.operations : [];
-      if (operations.length) {
-        const result = applyAiOperations(operations, {
-          preserveModelLayout: ['grok', 'openai'].includes(providerSelect.value) && Boolean(aiImageContext?.dataUrl),
-        });
-        const summary = [
-          `buat node ${result.createdNodes}`,
-          `buat edge ${result.createdEdges}`,
-          `edit node ${result.updatedNodes}`,
-          `hapus node ${result.deletedNodes}`,
-          `edit edge ${result.updatedEdges}`,
-          `hapus edge ${result.deletedEdges}`,
-          `layout ${result.layoutApplied ? result.layoutOrientation : 'tidak'}`,
-        ].join(' · ');
-        setAiStatus(summary);
-        setSaveMessage(summary);
-        if (result.missedNodeTargets || result.missedEdgeTargets) {
-          const misses = [
-            result.missedNodeTargets ? `target node tidak ketemu: ${result.missedNodeTargets}` : '',
-            result.missedEdgeTargets ? `target edge tidak ketemu: ${result.missedEdgeTargets}` : '',
-          ].filter(Boolean).join(' · ');
-          appendAiMessage('system', `Sebagian operasi AI tidak diterapkan: ${misses}. Coba gunakan label node yang lebih spesifik atau minta AI menyebut node yang ada persis di canvas.`);
-        }
-      } else {
-        setAiStatus('Respons AI diterima');
-        setSaveMessage('AI response received');
+      if (!response.body) {
+        throw new Error('Browser tidak mendukung streaming respons.');
       }
 
-      if (!operations.length) {
-        const usageText = payload.model
-          ? `Provider ${payload.provider} · model ${payload.model}`
-          : 'Respons AI diterima';
-        setAiStatus(usageText);
+      await consumeAiSseStream(response.body, {
+        onReply: (delta) => {
+          if (!replyReceived) {
+            replyReceived = true;
+            hideAiLoading();
+          }
+          streamMsg.appendText(delta);
+        },
+        onOperation: (op) => {
+          applySingleAiOperation(op, ctx, { preserveModelLayout });
+          setAiStatus(summarizeAiStreamProgress(ctx));
+        },
+        onDone: (data) => {
+          finalModel = data?.model || '';
+          finalProvider = data?.provider || '';
+        },
+        onError: (data) => {
+          throw new Error(data?.error || 'AI stream error');
+        },
+      });
+
+      if (!replyReceived) {
+        streamMsg.setText('AI merespons tanpa teks.');
+      }
+
+      const result = finalizeAiStream(ctx, { preserveModelLayout });
+      const summary = [
+        `buat node ${result.createdNodes}`,
+        `buat edge ${result.createdEdges}`,
+        `edit node ${result.updatedNodes}`,
+        `hapus node ${result.deletedNodes}`,
+        `edit edge ${result.updatedEdges}`,
+        `hapus edge ${result.deletedEdges}`,
+        `layout ${result.layoutApplied ? result.layoutOrientation : 'tidak'}`,
+      ].join(' · ');
+      setAiStatus(summary);
+      setSaveMessage(summary);
+      if (result.missedNodeTargets || result.missedEdgeTargets) {
+        const misses = [
+          result.missedNodeTargets ? `target node tidak ketemu: ${result.missedNodeTargets}` : '',
+          result.missedEdgeTargets ? `target edge tidak ketemu: ${result.missedEdgeTargets}` : '',
+        ].filter(Boolean).join(' · ');
+        appendAiMessage('system', `Sebagian operasi AI tidak diterapkan: ${misses}. Coba gunakan label node yang lebih spesifik atau minta AI menyebut node yang ada persis di canvas.`);
+      }
+      if (finalModel) {
+        setAiStatus(`Provider ${finalProvider} · model ${finalModel}`);
       }
       promptInput.value = '';
     } catch (error) {
       const message = error instanceof Error ? error.message : 'AI request failed';
       setAiStatus(message);
       setSaveMessage('AI request failed');
+      if (!replyReceived) {
+        // show error inside the streaming message bubble
+        streamMsg.setText(message);
+      }
     } finally {
       setAiBusy(false);
     }

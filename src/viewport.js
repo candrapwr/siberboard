@@ -68,3 +68,43 @@ export function resetView() {
   view.panY = 0;
   applyTransform();
 }
+
+/**
+ * Adjust pan & zoom so the given world-space bounding box fits inside the
+ * canvas viewport with some padding. Falls back to `resetView` if the box is
+ * empty or the viewport isn't measurable yet.
+ *
+ * @param {{minX:number,minY:number,maxX:number,maxY:number}} bbox world coords
+ * @param {{padding?:number}} opts
+ */
+export function fitBBox(bbox, opts = {}) {
+  if (!viewportEl || !areaEl) return;
+  const padding = opts.padding ?? 80;
+
+  const width = bbox.maxX - bbox.minX;
+  const height = bbox.maxY - bbox.minY;
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    resetView();
+    return;
+  }
+
+  const r = areaEl.getBoundingClientRect();
+  const availW = Math.max(r.width - padding * 2, 1);
+  const availH = Math.max(r.height - padding * 2, 1);
+
+  const zoomX = availW / width;
+  const zoomY = availH / height;
+  view.zoom = clamp(Math.min(zoomX, zoomY), MIN_ZOOM, MAX_ZOOM);
+
+  // Center the bbox inside the viewport. We need to position the bbox's
+  // top-left world point at (padding + centeringOffset) in screen space.
+  // screen = pan + world * zoom  →  pan = screen - world * zoom
+  const bboxCx = bbox.minX + width / 2;
+  const bboxCy = bbox.minY + height / 2;
+  const screenCenterX = r.width / 2;
+  const screenCenterY = r.height / 2;
+  view.panX = screenCenterX - bboxCx * view.zoom;
+  view.panY = screenCenterY - bboxCy * view.zoom;
+
+  applyTransform();
+}

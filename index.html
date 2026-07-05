@@ -611,9 +611,21 @@
       <svg id="edgeLayer" class="absolute top-0 left-0 overflow-visible pointer-events-none z-10" width="1" height="1"></svg>
     </div>
 
-    <!-- add-node trigger -->
-    <button id="addNodeBtn"
-      class="ui-chrome absolute top-4 right-4 z-30 w-10 h-10 rounded-lg bg-[#ea4b71] hover:bg-[#d63e63] text-xl font-bold shadow-lg flex items-center justify-center">+</button>
+    <!-- top-right toolbar: add-node trigger (top) + zoom controls (below) -->
+    <div class="ui-chrome absolute top-4 right-4 z-30 flex flex-col items-end gap-2">
+      <button id="addNodeBtn"
+        class="w-10 h-10 rounded-lg bg-[#ea4b71] hover:bg-[#d63e63] text-xl font-bold shadow-lg flex items-center justify-center">+</button>
+      <div class="flex items-center gap-2">
+        <span id="zoomLabel" class="text-xs text-gray-400 bg-[#202020] border border-[#2d2d2d] rounded px-2 py-1">100%</span>
+        <div class="flex flex-col bg-[#202020] border border-[#2d2d2d] rounded-lg overflow-hidden">
+          <button id="zoomIn" class="w-9 h-9 hover:bg-[#2d2d2d] text-lg leading-none">+</button>
+          <div class="h-px bg-[#2d2d2d]"></div>
+          <button id="zoomOut" class="w-9 h-9 hover:bg-[#2d2d2d] text-lg leading-none">−</button>
+          <div class="h-px bg-[#2d2d2d]"></div>
+          <button id="zoomFit" class="w-9 h-9 hover:bg-[#2d2d2d] text-sm" title="Fit to view">⊡</button>
+        </div>
+      </div>
+    </div>
 
     <!-- node picker panel -->
     <aside id="nodePanel"
@@ -658,18 +670,6 @@
         </div>
       </div>
     </aside>
-
-    <!-- zoom controls -->
-    <div class="ui-chrome absolute top-4 left-4 z-30 flex items-center gap-2">
-      <div class="flex flex-col bg-[#202020] border border-[#2d2d2d] rounded-lg overflow-hidden">
-        <button id="zoomIn" class="w-9 h-9 hover:bg-[#2d2d2d] text-lg leading-none">+</button>
-        <div class="h-px bg-[#2d2d2d]"></div>
-        <button id="zoomOut" class="w-9 h-9 hover:bg-[#2d2d2d] text-lg leading-none">−</button>
-        <div class="h-px bg-[#2d2d2d]"></div>
-        <button id="zoomFit" class="w-9 h-9 hover:bg-[#2d2d2d] text-sm" title="Reset view">⊡</button>
-      </div>
-      <span id="zoomLabel" class="text-xs text-gray-400 bg-[#202020] border border-[#2d2d2d] rounded px-2 py-1">100%</span>
-    </div>
 
     <div id="edgeMenu" class="edge-menu ui-chrome absolute z-50 hidden">
       <button id="editEdgeBtn" type="button">Edit label</button>
