@@ -5,6 +5,7 @@ import { createReadStream } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NODE_TYPES } from './src/constants.js';
+import { createIncrementalOperationParser } from './src/aiStreamParser.js';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -360,6 +361,190 @@ function parseAssistantPayloadFromText(text) {
   }
 }
 
+/**
+ * Streaming provider: yields text deltas as they arrive.
+ * Supports DeepSeek/OpenAI-compatible chat/completions and OpenAI/Grok /responses streaming.
+ */
+async function* streamProvider({ providerName, model, messages, imageDataUrl }) {
+  const provider = PROVIDERS[providerName];
+  if (!provider) {
+    throw new Error(`Unsupported provider: ${providerName}`);
+  }
+  const apiKey = process.env[provider.envKey];
+  if (!apiKey) {
+    throw new Error(`Missing ${provider.envKey} in server environment`);
+  }
+
+  const useResponses = (providerName === 'openai' || providerName === 'grok') && imageDataUrl;
+
+  if (useResponses) {
+    const requestedModel = model || provider.defaultModel;
+    const systemMessage = messages.find(message => message.role === 'system')?.content || '';
+    const userMessage = messages.findLast(message => message.role === 'user')?.content || '';
+    let modelForRequest = requestedModel;
+    if (providerName === 'grok' && requestedModel.startsWith('grok-3-mini')) {
+      modelForRequest = 'grok-4.3';
+    }
+    const userContent = [
+      { type: 'input_text', text: userMessage },
+    ];
+    if (imageDataUrl) {
+      userContent.unshift({
+        type: 'input_image',
+        image_url: imageDataUrl,
+        detail: 'high',
+      });
+    }
+
+    const response = await fetch(`${provider.baseUrl}/responses`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: modelForRequest,
+        store: false,
+        stream: true,
+        input: [
+          {
+            role: 'system',
+            content: [{ type: 'input_text', text: systemMessage }],
+          },
+          { role: 'user', content: userContent },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text();
+      throw new Error(`${provider.label} API error ${response.status}: ${detail}`);
+    }
+
+    yield* readSseLines(response, (eventName, data) => {
+      if (!data || data === '[DONE]') return '';
+      try {
+        const parsed = JSON.parse(data);
+      } catch {
+        return '';
+      }
+      // /responses streaming emits partial JSON lines per event type.
+      // Deltas for output text come via "response.output_text.delta".
+      if (eventName === 'response.output_text.delta') {
+        return typeof parsed.delta === 'string' ? parsed.delta : '';
+      }
+      // Some providers send {type:'output_text_delta', delta:'...'}
+      if (parsed.type === 'output_text_delta' && typeof parsed.delta === 'string') {
+        return parsed.delta;
+      }
+      // chat-completions style fallback inside /responses
+      if (parsed.choices?.[0]?.delta?.content) {
+        return parsed.choices[0].delta.content;
+      }
+      return '';
+    });
+    return;
+  }
+
+  // DeepSeek + OpenAI (text-only) + Grok (text-only): chat/completions streaming.
+  const response = await fetch(`${provider.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: model || provider.defaultModel,
+      temperature: 0.2,
+      stream: true,
+      response_format: { type: 'json_object' },
+      messages,
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`${provider.label} API error ${response.status}: ${detail}`);
+  }
+
+  yield* readSseLines(response, (_eventName, data) => {
+    if (!data || data === '[DONE]') return '';
+    try {
+      const parsed = JSON.parse(data);
+      const delta = parsed?.choices?.[0]?.delta?.content;
+      return typeof delta === 'string' ? delta : '';
+    } catch {
+      return '';
+    }
+  });
+}
+
+/**
+ * Read an SSE stream from a fetch Response. Calls `onEvent(eventName, data)`
+ * for each event; if it returns a non-empty string, that string is yielded.
+ */
+async function* readSseLines(response, onEvent) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // SSE events are separated by a blank line.
+      let sepIndex;
+      while ((sepIndex = buffer.indexOf('\n\n')) !== -1) {
+        const rawEvent = buffer.slice(0, sepIndex);
+        buffer = buffer.slice(sepIndex + 2);
+        const { eventName, dataLines } = parseSseBlock(rawEvent);
+        if (!dataLines.length) continue;
+        const data = dataLines.join('\n');
+        const out = onEvent(eventName, data);
+        if (out) yield out;
+      }
+    }
+    // flush trailing
+    if (buffer.trim()) {
+      const { eventName, dataLines } = parseSseBlock(buffer);
+      if (dataLines.length) {
+        const data = dataLines.join('\n');
+        const out = onEvent(eventName, data);
+        if (out) yield out;
+      }
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* noop */ }
+  }
+}
+
+function parseSseBlock(rawEvent) {
+  let eventName = 'message';
+  const dataLines = [];
+  for (const line of rawEvent.split(/\r?\n/)) {
+    if (!line || line.startsWith(':')) continue;
+    const colon = line.indexOf(':');
+    const field = colon === -1 ? line : line.slice(0, colon);
+    const valueRaw = colon === -1 ? '' : line.slice(colon + 1);
+    const value = valueRaw.startsWith(' ') ? valueRaw.slice(1) : valueRaw;
+    if (field === 'event') eventName = value;
+    else if (field === 'data') dataLines.push(value);
+  }
+  return { eventName, dataLines };
+}
+
+/**
+ * Adapter that creates an incremental parser wired to SiberBoard's
+ * `validateAiResponse` for operation normalization. Defined after
+ * `validateAiResponse` is hoisted (function declarations are hoisted).
+ */
+function makeAiStreamParser() {
+  return createIncrementalOperationParser((op) => {
+    const validated = validateAiResponse({ operations: [op] }).operations;
+    return validated.length ? validated[0] : null;
+  });
+}
+
 function validateAiResponse(payload) {
   const reply = typeof payload?.reply === 'string' ? payload.reply : '';
   const operations = Array.isArray(payload?.operations) ? payload.operations : [];
@@ -664,6 +849,26 @@ async function handleAiProviders(req, res) {
 }
 
 async function handleAiChat(req, res) {
+  // Streaming SSE response. Emits events:
+  //   event: reply      data: {"delta":"..."}
+  //   event: operation  data: {...validated op...}
+  //   event: done       data: {"provider":"...","model":"...","usage":...}
+  //   event: error      data: {"error":"..."}
+  let clientClosed = false;
+  // Use res 'close' (not req 'close'): the request 'close' fires when the
+  // request body finishes, which is normal — it does NOT mean the client
+  // disconnected. The response 'close' fires when the underlying connection
+  // is torn down, which is what we want for cancelling the upstream stream.
+  res.on('close', () => { clientClosed = true; });
+
+  const send = (event, data) => {
+    if (clientClosed) return;
+    try {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    } catch { /* noop */ }
+  };
+
   try {
     const body = await readBody(req);
     if (typeof body.prompt !== 'string' || !body.prompt.trim()) {
@@ -676,29 +881,67 @@ async function handleAiChat(req, res) {
       : body.provider === 'openai'
         ? 'openai'
         : 'deepseek';
-    const result = await callProvider({
-      providerName,
-      model: typeof body.model === 'string' ? body.model.trim() : '',
-      imageDataUrl: (providerName === 'grok' || providerName === 'openai') && typeof body.imageDataUrl === 'string'
-        ? body.imageDataUrl
-        : '',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: buildUserPrompt(body) },
-      ],
-    });
 
-    sendJson(res, 200, {
-      provider: providerName,
-      model: result.resolvedModel || body.model || PROVIDERS[providerName].defaultModel,
-      reply: result.parsed.reply,
-      operations: result.parsed.operations,
-      usage: result.usage,
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
     });
+    res.write(': stream-start\n\n');
+
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: buildUserPrompt(body) },
+    ];
+    const imageDataUrl = (providerName === 'grok' || providerName === 'openai')
+      && typeof body.imageDataUrl === 'string'
+      ? body.imageDataUrl
+      : '';
+    const requestedModel = typeof body.model === 'string' ? body.model.trim() : '';
+    const parser = makeAiStreamParser();
+    let usage = null;
+
+    const stream = streamProvider({
+      providerName,
+      model: requestedModel,
+      imageDataUrl,
+      messages,
+    });
+    let firstReplySent = false;
+    for await (const chunk of stream) {
+      if (clientClosed) break;
+      const { replyDelta, operations } = parser.feed(chunk);
+      if (replyDelta) {
+        send('reply', { delta: replyDelta });
+        firstReplySent = true;
+      }
+      for (const op of operations) {
+        send('operation', op);
+      }
+    }
+
+    // If the model never produced a reply string (e.g. empty/garbage), emit a fallback.
+    if (!clientClosed && !firstReplySent && parser.replyStart === -1) {
+      send('reply', { delta: parser.buffer.trim() || '( Respons AI kosong )' });
+    }
+
+    if (!clientClosed) {
+      send('done', {
+        provider: providerName,
+        model: requestedModel || PROVIDERS[providerName].defaultModel,
+        usage,
+      });
+      res.end();
+    }
   } catch (error) {
-    sendJson(res, 500, {
-      error: error instanceof Error ? error.message : 'Unknown AI server error',
-    });
+    const message = error instanceof Error ? error.message : 'Unknown AI server error';
+    if (!res.headersSent) {
+      sendJson(res, 500, { error: message });
+    } else {
+      send('error', { error: message });
+      try { res.end(); } catch { /* noop */ }
+    }
   }
 }
 

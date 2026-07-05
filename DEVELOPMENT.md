@@ -56,7 +56,8 @@ Runtime sekarang **tidak lagi client-side only**. Editor tetap berjalan di brows
     ├── input.css
     ├── main.js
     ├── state.js
-    └── viewport.js
+    ├── viewport.js
+    └── aiStreamParser.js
 ```
 
 ## Menjalankan Project
@@ -137,8 +138,12 @@ Catatan:
   Server Node untuk:
   - serve file statis,
   - membaca `.env`,
-  - pemanggilan provider AI,
-  - validasi respons AI.
+  - pemanggilan provider AI (streaming),
+  - validasi operasi AI.
+
+- [src/aiStreamParser.js](src/aiStreamParser.js)
+  Parser JSON parsial untuk streaming AI. Mengemit potongan `reply` dan
+  operasi lengkap seiring token tiba dari provider.
 
 ## Data Model
 
@@ -207,12 +212,29 @@ Port:
 
 ### Alur
 
+AI assistant memakai **streaming SSE** sehingga canvas update selang-selah
+selama model masih merespons — tidak menunggu seluruh respons selesai.
+
 1. User klik tombol `AI Assistant`.
 2. Panel assistant dibuka.
-3. Frontend mengirim state kanvas + prompt ke `/api/ai/chat`.
-4. Server memanggil provider AI.
-5. Server memvalidasi operasi.
-6. Frontend mengaplikasikan operasi ke state dan DOM.
+3. Frontend mengirim state kanvas + prompt ke `POST /api/ai/chat`.
+4. Server membuka koneksi SSE (`text/event-stream`) dan mulai streaming dari
+   provider AI dengan `stream: true`.
+5. Token teks dari provider dilewatkan ke `IncrementalOperationParser`
+   (`src/aiStreamParser.js`) yang mem-parsa JSON parsial secara inkremental:
+   - setiap potongan nilai `"reply"` di-emit sebagai event `reply`,
+   - setiap objek operasi yang closing-brace-nya sudah sampai divalidasi
+     via `validateAiResponse` lalu di-emit sebagai event `operation`.
+6. Frontend membaca stream dengan `response.body.getReader()`, menerapkan
+   setiap operasi ke canvas begitu diterima
+   (`applySingleAiOperation`), dan mengisi teks balasan assistant
+   kata demi kata.
+7. Saat stream selesai, server mengirim event `done`; frontend menjalankan
+   auto-layout final (`finalizeAiStream`) bila perlu.
+
+Selama stream, node dibuat memakai `x`/`y` dari AI (jika ada). Bila AI tidak
+memberi koordinat, node akan stack di (0,0) sampai auto-layout final dijalankan
+di event `done`.
 
 ### Endpoint auth
 
@@ -222,9 +244,40 @@ Port:
 
 ### Endpoint AI
 
-- `POST /api/ai/chat`
+- `POST /api/ai/chat` — mengembalikan `text/event-stream` dengan event:
+
+| Event       | Data                                           | Arti                                       |
+|-------------|------------------------------------------------|--------------------------------------------|
+| `reply`     | `{"delta":"..."}`                              | Potongan teks balasan assistant            |
+| `operation` | `{...validated op...}`                         | Satu operasi siap diterapkan ke canvas     |
+| `done`      | `{"provider":"...","model":"...","usage":...}` | Stream selesai                             |
+| `error`     | `{"error":"..."}`                              | Kegagalan (provider, parsing, dll.)        |
 
 Route ini dapat dipakai tanpa session login.
+
+### Modul streaming
+
+- `src/aiStreamParser.js` — `createIncrementalOperationParser(validateOp)`:
+  parser JSON parsial yang string-aware (menangani escape dan brace di dalam
+  string). Memiliki helper `decodeJsonStringPartial` dan `findObjectEnd`.
+- `server.mjs`:
+  - `streamProvider(...)` — async generator yang memanggil provider dengan
+    `stream: true` dan `yield` token teks. Mendukung DeepSeek/OpenAI
+    (`/chat/completions`) dan OpenAI/Grok dengan gambar (`/responses`).
+  - `readSseLines(response, onEvent)` — pembaca SSE dari `response.body`.
+  - `makeAiStreamParser()` — adapter yang menempelkan `validateAiResponse`
+    sebagai validator operasi.
+  - `handleAiChat(req, res)` — SSE handler, mengirim event `reply` /
+    `operation` / `done` / `error`. Mendeteksi client disconnect lewat
+    `res.on('close')` (bukan `req.on('close')`).
+- `src/main.js`:
+  - `applySingleAiOperation(op, ctx, options)` — menerapkan satu operasi,
+    render segera.
+  - `finalizeAiStream(ctx, options)` — auto-layout final + persist.
+  - `createAiStreamContext()` — state bersama antar operasi (termasuk `refMap`).
+  - `consumeAiSseStream(body, handlers)` — reader SSE sisi client.
+  - `createStreamingAssistantMessage()` — bubble pesan assistant yang teksnya
+    bisa di-update inkremental.
 
 ### Operasi AI yang didukung
 
