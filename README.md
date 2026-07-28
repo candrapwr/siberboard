@@ -8,6 +8,15 @@ Rancang alur kerja, flowchart, dan diagram proses secara visual di browser: drag
 
 _Sebuah produk dari **Datasiber Lab** · `board.datasiber.com`_
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![JavaScript](https://img.shields.io/badge/JavaScript-vanilla-F7DF1E?logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-styling-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![esbuild](https://img.shields.io/badge/esbuild-bundler-FFCF00?logo=esbuild&logoColor=black)](https://esbuild.github.io/)
+[![AI](https://img.shields.io/badge/AI-optional-9F7AEA.svg)](#-ai-assistant)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#)
+[![Status](https://img.shields.io/badge/status-aktif_maintained-success.svg)](#)
+[![Stars](https://img.shields.io/github/stars/candrapwr/siberboard?style=social&label=Star)](https://github.com/candrapwr/siberboard/stargazers)
+
 ![UI Preview](ss.png)
 
 </div>
@@ -147,8 +156,19 @@ Ingin memahami implementasinya lebih detail? Lihat **[DEVELOPMENT.md](DEVELOPMEN
 
 ---
 
+## 📄 Lisensi
+
+Dirilis di bawah **Lisensi MIT**. Lihat [LICENSE](./LICENSE).
+
+Bebas dipakai, dimodifikasi, dan didistribusikan — termasuk untuk keperluan komersial.
+
+---
+
 <div align="center">
 
-**SiberBoard** · Datasiber Lab · [datasiber.com](https://datasiber.com)
+**SiberBoard** · Dibuat dengan ❤️ oleh **[dataSiberLab](https://datasiber.com)**
+📧 [candrapwr@datasiber.com](mailto:candrapwr@datasiber.com) · 🌐 [datasiber.com](https://datasiber.com)
+
+SiberBoard berguna? ⭐ Star repo-nya!
 
 </div>
